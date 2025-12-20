@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getQuestions, createGame, createMatchHistory, updatePlayerStats, getGameSettings, getPlayer } from '../services/firestore';
+import { getQuestions, createGame, createMatchHistory, updatePlayerStats, getPlayer, getUser } from '../services/firestore';
 import { Question, MatchHistory } from '../types/firebase';
 import { Bolt, ArrowLeft } from 'lucide-react';
+import { auth } from '../config/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../config/firebase';
 
 const COLOR_THEME = {
   A_RED: '#FF416C',
@@ -24,7 +27,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   practiceMode,
   gameSettings,
 }) => {
-  const { userData } = useAuth();
+  const { userData, currentUser, loading: authLoading } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [playerScore, setPlayerScore] = useState(0);
@@ -32,6 +35,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   const [revealedWordsCount, setRevealedWordsCount] = useState(0);
   const [isQuestionLive, setIsQuestionLive] = useState(false);
   const [shuffledAnswers, setShuffledAnswers] = useState<string[]>([]);
+  const [shuffledAnswersQuestionId, setShuffledAnswersQuestionId] = useState<string | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [showCorrect, setShowCorrect] = useState(false);
@@ -46,11 +50,20 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   const [hasBuzzed, setHasBuzzed] = useState(false);
   const [showHesitation, setShowHesitation] = useState(false);
   const [hesitationTimer, setHesitationTimer] = useState<number | null>(null);
+  const [hesitationComplete, setHesitationComplete] = useState(false);
   const revealIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadQuestions();
   }, []);
+
+  // Start first question when questions are loaded and game is created
+  useEffect(() => {
+    if (questions.length > 0 && gameId && currentQuestionIndex === 0 && questionStartTime === null) {
+      startQuestion();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questions, gameId, currentQuestionIndex, questionStartTime]);
 
   const loadQuestions = async () => {
     try {
@@ -101,7 +114,6 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
           status: 'active',
         });
         setGameId(newGameId);
-        startQuestion();
       }
     } catch (error) {
       console.error('Error loading questions:', error);
@@ -116,18 +128,39 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     if (!questions[currentQuestionIndex]) return;
 
     const currentQuestion = questions[currentQuestionIndex];
+    // Validate question has required data
+    if (!currentQuestion.correctAnswer || !currentQuestion.distractors || currentQuestion.distractors.length === 0) {
+      console.error(`Question ${currentQuestion.id} is missing answer data:`, {
+        questionText: currentQuestion.questionText,
+        correctAnswer: currentQuestion.correctAnswer,
+        distractors: currentQuestion.distractors
+      });
+      return;
+    }
+    
     // Shuffle answers but keep them tied to this specific question object
     // Use the question's ID to ensure we're always using the correct question's answers
     const shuffled = [currentQuestion.correctAnswer, ...currentQuestion.distractors].sort(
       () => Math.random() - 0.5
     );
+    
+    // Debug: Log to verify question and answers match
+    console.log('Starting question:', {
+      questionId: currentQuestion.id,
+      questionText: currentQuestion.questionText,
+      correctAnswer: currentQuestion.correctAnswer,
+      shuffledAnswers: shuffled
+    });
+    
     setShuffledAnswers(shuffled);
+    setShuffledAnswersQuestionId(currentQuestion.id); // Store question ID to validate match
     setQuestionFullyRevealed(false);
     setRevealedWordsCount(0);
     setIsQuestionLive(true); // Allow immediate buzzing
     setHasBuzzed(false);
     setShowHesitation(false);
     setHesitationTimer(null);
+    setHesitationComplete(false);
     setSelectedAnswer(null);
     setShowResult(false);
     setShowCorrect(false);
@@ -177,6 +210,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     } else if (timer === 0 && questionFullyRevealed) {
       handleTimeExpired();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timer, questionFullyRevealed]);
 
   const handleBuzz = () => {
@@ -191,39 +225,127 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     const buzzTime = (Date.now() - questionStartTime) / 1000;
     setBuzzTimes((prev) => [...prev, buzzTime]);
     setHasBuzzed(true);
-    setHesitationTimer(gameSettings.hesitationTime);
-    setQuestionFullyRevealed(true); // Show answers immediately
-    // Stop the main timer when buzzed
-    setTimer(0);
+    // Don't set hesitation timer here - it will be set automatically when questionFullyRevealed becomes true
+    setHesitationComplete(false); // Reset hesitation complete flag
+    setShowHesitation(false); // Reset hesitation display
+    setQuestionFullyRevealed(true);
+    // Reset timer to questionTime when buzzed (instead of setting to 0)
+    setTimer(gameSettings.questionTime);
+    
+    console.log('Buzz clicked:', {
+      hesitationTime: gameSettings.hesitationTime,
+      questionTime: gameSettings.questionTime
+    });
   };
 
-  // Hesitation timer
+  // Start hesitation timer when question is fully revealed (either naturally or by buzzing)
   useEffect(() => {
-    if (hasBuzzed && hesitationTimer !== null && hesitationTimer > 0 && !showResult) {
-      const timer = setInterval(() => {
-        setHesitationTimer((prev) => {
-          if (prev === null) return null;
-          if (prev <= 1) {
-            setShowHesitation(true);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => clearInterval(timer);
-    } else if (hesitationTimer === 0 && !showResult) {
-      setShowHesitation(true);
+    if (questionFullyRevealed && hesitationTimer === null && !hesitationComplete && !showResult) {
+      console.log('Question fully revealed, starting hesitation timer');
+      setHesitationTimer(gameSettings.hesitationTime);
     }
-  }, [hasBuzzed, hesitationTimer, showResult]);
+  }, [questionFullyRevealed, hesitationTimer, hesitationComplete, showResult, gameSettings.hesitationTime]);
+
+  // Hesitation timer countdown
+  useEffect(() => {
+    if (showResult || hesitationComplete || hesitationTimer === null || hesitationTimer <= 0) {
+      return;
+    }
+    
+    console.log('Starting hesitation timer countdown:', hesitationTimer);
+    const timer = setInterval(() => {
+      setHesitationTimer((prev) => {
+        if (prev === null || prev <= 0) {
+          return 0;
+        }
+        const newValue = prev - 1;
+        console.log('Hesitation timer:', newValue);
+        return newValue;
+      });
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [hesitationTimer, showResult, hesitationComplete]);
+  
+  // When hesitation timer reaches 0, show hesitation message then reveal question/answers
+  useEffect(() => {
+    if (showResult || hesitationComplete) {
+      return;
+    }
+    
+    // Check if hesitation timer has reached 0 and we haven't shown the message yet
+    if (hesitationTimer === 0 && !showHesitation) {
+      console.log('Hesitation timer reached 0, showing hesitation message');
+      setShowHesitation(true);
+      
+      // After 2 seconds, hide hesitation message
+      const timeoutId = setTimeout(() => {
+        console.log('Hesitation period complete');
+        setShowHesitation(false);
+        setHesitationComplete(true);
+      }, 2000);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [hesitationTimer, showResult, hesitationComplete, showHesitation]);
+
+  // Debug: Log state changes after buzzing
+  useEffect(() => {
+    if (hasBuzzed && questions.length > 0 && questions[currentQuestionIndex]) {
+      const currentQ = questions[currentQuestionIndex];
+      console.log('State after buzz:', {
+        hasBuzzed,
+        hesitationTimer,
+        showHesitation,
+        hesitationComplete,
+        questionFullyRevealed,
+        hasCurrentQuestion: !!currentQ,
+        shuffledAnswersQuestionId,
+        currentQuestionId: currentQ?.id
+      });
+    }
+  }, [hasBuzzed, hesitationTimer, showHesitation, hesitationComplete, questionFullyRevealed, questions, currentQuestionIndex, shuffledAnswersQuestionId]);
+
+  // Ensure shuffledAnswers always match the current question
+  useEffect(() => {
+    if (questions.length > 0 && questions[currentQuestionIndex]) {
+      const currentQuestion = questions[currentQuestionIndex];
+      if (shuffledAnswersQuestionId !== currentQuestion.id) {
+        // Regenerate shuffled answers if they don't match the current question
+        if (!currentQuestion.correctAnswer || !currentQuestion.distractors || currentQuestion.distractors.length === 0) {
+          console.error(`Question ${currentQuestion.id} is missing answer data`);
+          return;
+        }
+        const shuffled = [currentQuestion.correctAnswer, ...currentQuestion.distractors].sort(
+          () => Math.random() - 0.5
+        );
+        console.log('Regenerating shuffled answers for question:', {
+          questionId: currentQuestion.id,
+          questionText: currentQuestion.questionText,
+          shuffledAnswers: shuffled
+        });
+        setShuffledAnswers(shuffled);
+        setShuffledAnswersQuestionId(currentQuestion.id);
+      }
+    }
+  }, [currentQuestionIndex, questions, shuffledAnswersQuestionId]);
 
   const handleTimeExpired = () => {
-    const nextIndex = currentQuestionIndex + 1;
-    if (nextIndex >= questions.length) {
-      endGame();
-    } else {
-      setCurrentQuestionIndex(nextIndex);
-      startQuestion();
-    }
+    // Show the answer when time expires
+    setShowResult(true);
+    setSelectedAnswer(null); // No answer selected, so show correct answer
+    
+    // Wait 3 seconds to show the answer before moving to next question
+    setTimeout(() => {
+      setShowResult(false);
+      const nextIndex = currentQuestionIndex + 1;
+      if (nextIndex >= questions.length) {
+        endGame();
+      } else {
+        setCurrentQuestionIndex(nextIndex);
+        startQuestion();
+      }
+    }, 3000);
   };
 
   const handleAnswer = async (answer: string) => {
@@ -266,7 +388,51 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   };
 
   const endGame = async () => {
-    if (!userData || !gameId) return;
+    // Ensure auth is fully loaded before proceeding
+    if (authLoading) {
+      console.error('Cannot save match history: Auth still loading');
+      alert('Please wait for authentication to complete.');
+      return;
+    }
+    
+    // Ensure both currentUser and userData exist - Firestore rules check request.auth.uid
+    if (!currentUser || !userData || !gameId) {
+      console.error('Cannot save match history: Missing authentication', {
+        authLoading,
+        hasCurrentUser: !!currentUser,
+        hasUserData: !!userData,
+        hasGameId: !!gameId,
+      });
+      alert('Cannot save game results. Please ensure you are logged in.');
+      onBack();
+      return;
+    }
+
+    // Verify Firebase Auth is ready and user is authenticated
+    const currentAuthUser = auth.currentUser;
+    if (!currentAuthUser || currentAuthUser.uid !== currentUser.uid) {
+      console.error('Firebase Auth state mismatch:', {
+        currentAuthUserUid: currentAuthUser?.uid,
+        currentUserUid: currentUser.uid,
+      });
+      alert('Authentication error. Please refresh the page and try again.');
+      onBack();
+      return;
+    }
+
+    // Use currentUser.uid to ensure it matches request.auth.uid in Firestore rules
+    const playerId = currentUser.uid;
+    
+    // Verify userData.uid matches currentUser.uid
+    if (userData.uid !== playerId) {
+      console.error('User data mismatch:', {
+        currentUserUid: playerId,
+        userDataUid: userData.uid,
+      });
+      alert('Authentication error. Please log out and log back in.');
+      onBack();
+      return;
+    }
 
     const avgBuzzTime = buzzTimes.length > 0
       ? buzzTimes.reduce((a, b) => a + b, 0) / buzzTimes.length
@@ -274,7 +440,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
 
     const matchHistory: Omit<MatchHistory, 'id' | 'startedAt' | 'completedAt'> = {
       gameId,
-      playerId: userData.uid,
+      playerId: playerId, // Use currentUser.uid to match request.auth.uid
       teamId: userData.teamId,
       type: 'practice',
       score: playerScore,
@@ -287,10 +453,150 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     };
 
     try {
+      // Verify user document exists in Firestore (required for some rules)
+      let userDoc = await getUser(playerId);
+      if (!userDoc) {
+        console.warn('User document does not exist in Firestore, creating it...');
+        try {
+          // Create user document if it doesn't exist
+          await setDoc(doc(db, 'users', playerId), {
+            uid: playerId,
+            email: currentUser.email || '',
+            displayName: userData.displayName || '',
+            role: userData.role,
+            teamId: userData.teamId || null,
+            createdAt: serverTimestamp(),
+            lastActive: serverTimestamp(),
+          });
+          console.log('User document created successfully');
+          // Re-fetch to verify it was created
+          userDoc = await getUser(playerId);
+        } catch (userDocError: any) {
+          console.error('Failed to create user document:', userDocError);
+          throw new Error(`Cannot create user document: ${userDocError.message}`);
+        }
+      }
+      
+      // For students, ensure player document exists with correct userId
+      if (userData.role === 'student') {
+        const playerDoc = await getPlayer(playerId);
+        if (!playerDoc) {
+          console.warn('Player document does not exist, creating it...');
+          try {
+            await setDoc(doc(db, 'players', playerId), {
+              userId: playerId, // Must match request.auth.uid for Firestore rules
+              teamId: userData.teamId || '',
+              displayName: userData.displayName || '',
+              gamesPlayed: 0,
+              totalScore: 0,
+              totalQuestions: 0,
+              avgBuzzTime: 0,
+              correctBySubject: {},
+              createdAt: serverTimestamp(),
+            });
+            console.log('Player document created successfully with userId:', playerId);
+          } catch (playerDocError: any) {
+            console.error('Failed to create player document:', playerDocError);
+            // Don't throw - we'll try again later when updating stats
+          }
+        } else if (playerDoc.userId !== playerId) {
+          // Fix userId if it doesn't match
+          console.warn('Player document userId mismatch, fixing...', {
+            currentUserId: playerDoc.userId,
+            expectedUserId: playerId,
+          });
+          try {
+            await setDoc(doc(db, 'players', playerId), {
+              userId: playerId, // Ensure userId matches auth uid
+            }, { merge: true });
+            console.log('Player document userId fixed');
+          } catch (fixError: any) {
+            console.error('Failed to fix player document userId:', fixError);
+          }
+        }
+      }
+      
+      // Log authentication details for debugging
+      console.log('Authentication check:', {
+        currentUserUid: currentUser.uid,
+        currentAuthUserUid: currentAuthUser?.uid,
+        userDataUid: userData.uid,
+        matchHistoryPlayerId: matchHistory.playerId,
+        authMatch: currentUser.uid === matchHistory.playerId,
+        authTokenExists: !!currentAuthUser,
+        teamId: userData.teamId,
+        userDocExists: !!userDoc,
+        userDocRole: userDoc?.role,
+      });
+      
+      // Verify playerId is a non-empty string
+      if (!matchHistory.playerId || typeof matchHistory.playerId !== 'string') {
+        throw new Error('Invalid playerId: must be a non-empty string');
+      }
+      
+      // Verify playerId matches auth uid exactly
+      if (matchHistory.playerId !== currentAuthUser.uid) {
+        throw new Error(`PlayerId mismatch: ${matchHistory.playerId} !== ${currentAuthUser.uid}`);
+      }
+      
+      console.log('Creating match history with data:', {
+        ...matchHistory,
+        playerId: matchHistory.playerId,
+        teamId: matchHistory.teamId || 'undefined (will be omitted)',
+      });
+      
+      // Double-check auth before writing
+      const finalAuthCheck = auth.currentUser;
+      if (!finalAuthCheck || finalAuthCheck.uid !== matchHistory.playerId) {
+        throw new Error(`Final auth check failed: ${finalAuthCheck?.uid} !== ${matchHistory.playerId}`);
+      }
+      
+      console.log('Final auth verification passed, creating match history...');
       await createMatchHistory(matchHistory);
+      console.log('Match history created successfully!');
       
       // Get current player stats to calculate increments
-      const currentPlayer = await getPlayer(userData.uid);
+      // Use playerId (currentUser.uid) to ensure consistency
+      let currentPlayer = await getPlayer(playerId);
+      
+      // If player document doesn't exist, create it first
+      if (!currentPlayer) {
+        console.warn('Player document does not exist, creating it before updating stats...');
+        try {
+          await setDoc(doc(db, 'players', playerId), {
+            userId: playerId, // Critical: must match request.auth.uid for rules
+            teamId: userData.teamId || '',
+            displayName: userData.displayName || '',
+            gamesPlayed: 0,
+            totalScore: 0,
+            totalQuestions: 0,
+            avgBuzzTime: 0,
+            correctBySubject: {},
+            createdAt: serverTimestamp(),
+          });
+          console.log('Player document created successfully');
+          // Re-fetch to get the created document
+          currentPlayer = await getPlayer(playerId);
+        } catch (playerCreateError: any) {
+          console.error('Failed to create player document:', playerCreateError);
+          throw new Error(`Cannot create player document: ${playerCreateError.message}`);
+        }
+      }
+      
+      // Verify player document has userId field matching auth uid
+      if (currentPlayer && currentPlayer.userId !== playerId) {
+        console.warn('Player document userId mismatch, fixing...');
+        try {
+          await setDoc(doc(db, 'players', playerId), {
+            ...currentPlayer,
+            userId: playerId, // Ensure userId matches auth uid
+          }, { merge: true });
+          currentPlayer = await getPlayer(playerId);
+        } catch (fixError: any) {
+          console.error('Failed to fix player document:', fixError);
+        }
+      }
+      
       const currentGamesPlayed = currentPlayer?.gamesPlayed || 0;
       const currentTotalScore = currentPlayer?.totalScore || 0;
       const currentTotalQuestions = currentPlayer?.totalQuestions || 0;
@@ -310,19 +616,51 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
         mergedCorrectBySubject[subject] = (mergedCorrectBySubject[subject] || 0) + count;
       });
 
-      await updatePlayerStats(userData.uid, {
+      console.log('Updating player stats:', {
+        playerId,
+        playerUserId: currentPlayer?.userId,
+        authUid: currentAuthUser.uid,
+        userIdMatch: currentPlayer?.userId === currentAuthUser.uid,
+      });
+
+      await updatePlayerStats(playerId, {
         gamesPlayed: newGamesPlayed,
         totalScore: newTotalScore,
         totalQuestions: newTotalQuestions,
         avgBuzzTime: parseFloat(newAvgBuzzTime.toFixed(2)),
         correctBySubject: mergedCorrectBySubject,
       });
+      
+      console.log('Player stats updated successfully!');
 
       alert(`Practice Complete! Final Score: ${playerScore}/${questions.length}`);
       onBack();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving match history:', error);
-      alert('Game completed but failed to save results.');
+      console.error('Error code:', error?.code);
+      console.error('Error message:', error?.message);
+      console.error('Error stack:', error?.stack);
+      console.error('Match history data:', matchHistory);
+      console.error('Auth state at error:', {
+        currentUser: !!currentUser,
+        currentUserUid: currentUser?.uid,
+        currentAuthUser: !!currentAuthUser,
+        currentAuthUserUid: currentAuthUser?.uid,
+        userData: !!userData,
+        userDataUid: userData?.uid,
+      });
+      
+      // Provide more specific error message based on error code
+      let errorMessage = 'Unknown error occurred';
+      if (error?.code === 'permission-denied') {
+        errorMessage = 'Permission denied. Please ensure you are logged in and your account is properly set up.';
+      } else if (error?.code === 'unauthenticated') {
+        errorMessage = 'You are not authenticated. Please log in and try again.';
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      alert(`Game completed but failed to save results.\n\nError: ${errorMessage}\n\nYour score: ${playerScore}/${questions.length}`);
       onBack();
     }
   };
@@ -332,7 +670,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
       <div
         className="min-h-screen w-full relative bg-cover bg-center bg-no-repeat flex items-center justify-center"
         style={{
-          backgroundImage: 'url(/Environments/Olympus Arena.png)',
+          backgroundImage: 'url(/Environments/Olympus%20Arena.png)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
         }}
@@ -442,22 +780,33 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
       </div>
 
       <div className="relative w-full max-w-4xl mx-auto mb-8">
-        {/* Hide question when buzzed - question disappears immediately */}
-        {!hasBuzzed && (
+        {/* Show question when question is fully revealed (immediately after buzz or when fully revealed) */}
+        {currentQuestion && questionFullyRevealed && (
           <div className="bg-purple-950/90 border-2 border-cyan-400 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
             <h2 className="text-3xl md:text-5xl font-black text-white">
-              {revealedText}
-              {!questionFullyRevealed && <span className="animate-pulse text-cyan-400">|</span>}
+              {currentQuestion.questionText}
             </h2>
           </div>
         )}
         
-        {/* Hesitation message */}
-        {showHesitation && hasBuzzed && !showResult && (
-          <div className="bg-red-900/90 border-4 border-red-500 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
-            <h2 className="text-4xl md:text-6xl font-black text-red-400 uppercase">
-              HESITATION
+        {/* Show question during word-by-word reveal (before buzz) */}
+        {currentQuestion && !questionFullyRevealed && !hasBuzzed && (
+          <div className="bg-purple-950/90 border-2 border-cyan-400 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
+            <h2 className="text-3xl md:text-5xl font-black text-white">
+              {revealedText}
+              <span className="animate-pulse text-cyan-400">|</span>
             </h2>
+          </div>
+        )}
+        
+        {/* Hesitation message overlay - appears above question during hesitation period (in all cases) */}
+        {showHesitation && !showResult && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+            <div className="bg-red-900/95 border-4 border-red-500 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
+              <h2 className="text-4xl md:text-6xl font-black text-red-400 uppercase">
+                HESITATION
+              </h2>
+            </div>
           </div>
         )}
       </div>
@@ -474,8 +823,8 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
           <Bolt size={80} className="text-yellow-900" fill="currentColor" />
         </button>
       ) : (
-        /* Show answer choices immediately when buzzed OR when question is fully revealed */
-        (hasBuzzed || questionFullyRevealed) && (
+        /* Show answer choices immediately when question is fully revealed (after buzz or natural reveal) */
+        questionFullyRevealed && currentQuestion && shuffledAnswersQuestionId === currentQuestion.id && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl">
             {shuffledAnswers.map((answer, idx) => {
               const labels = ['A', 'B', 'C', 'D'];

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ArrowLeft, 
   Upload, 
@@ -37,34 +37,63 @@ export function CoachDashboard({
   onPerformanceReports,
   onGameSettings,
 }: CoachDashboardProps) {
-  const { userData } = useAuth();
+  const { userData, loading: authLoading } = useAuth();
   const [students, setStudents] = useState<Player[]>([]);
   const [questions, setQuestions] = useState<FirestoreQuestion[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (userData?.teamId) {
-      loadData();
+  const loadData = useCallback(async () => {
+    if (!userData) {
+      setLoading(false);
+      return;
     }
-  }, [userData]);
-
-  const loadData = async () => {
-    if (!userData?.teamId) return;
     
     try {
       setLoading(true);
-      const [playersData, questionsData] = await Promise.all([
-        getPlayersByTeam(userData.teamId),
-        getQuestions({ teamId: userData.teamId })
-      ]);
-      setStudents(playersData);
-      setQuestions(questionsData);
+      
+      // Fetch students if teamId exists
+      let playersData: Player[] = [];
+      if (userData.teamId) {
+        playersData = await getPlayersByTeam(userData.teamId);
+      }
+      
+      // Fetch questions: team-specific and coach-created questions
+      const questionPromises: Promise<FirestoreQuestion[]>[] = [];
+      
+      if (userData.teamId) {
+        questionPromises.push(getQuestions({ teamId: userData.teamId }));
+      }
+      
+      if (userData.role === 'coach') {
+        questionPromises.push(getQuestions({ coachId: userData.uid }));
+      }
+      
+      const questionResults = await Promise.all(questionPromises);
+      
+      // Combine and deduplicate questions by ID
+      const questionsMap = new Map<string, FirestoreQuestion>();
+      questionResults.flat().forEach(q => {
+        if (!questionsMap.has(q.id)) {
+          questionsMap.set(q.id, q);
+        }
+      });
+      
+      setStudents(playersData || []);
+      setQuestions(Array.from(questionsMap.values()));
     } catch (error) {
       console.error('Error loading dashboard data:', error);
+      setStudents([]);
+      setQuestions([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [userData]);
+
+  useEffect(() => {
+    if (!authLoading) {
+      loadData();
+    }
+  }, [authLoading, loadData]);
 
   const avgAccuracy = students.length > 0
     ? students.reduce((sum, s) => {

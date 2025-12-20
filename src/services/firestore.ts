@@ -23,6 +23,7 @@ import {
   MatchHistory,
   LeaderboardEntry,
   GameSettings,
+  User,
 } from '../types/firebase';
 
 // Questions Collection
@@ -219,31 +220,57 @@ export const getGame = async (gameId: string) => {
   return null;
 };
 
+// Users Collection
+export const usersCollection = collection(db, 'users');
+
+export const getUser = async (userId: string) => {
+  const userDoc = await getDoc(doc(db, 'users', userId));
+  if (userDoc.exists()) {
+    return { id: userDoc.id, ...userDoc.data() } as User;
+  }
+  return null;
+};
+
 // Match History Collection
 export const matchHistoryCollection = collection(db, 'matchHistory');
 
 export const createMatchHistory = async (match: Omit<MatchHistory, 'id' | 'startedAt' | 'completedAt'>) => {
   const matchRef = doc(matchHistoryCollection);
   
-  // Build document data, filtering out undefined values
-  const matchDocData: any = {
+  // Build document data - keep it simple and ensure playerId is exactly the auth uid
+  const matchDocData: Record<string, unknown> = {
     gameId: match.gameId,
-    playerId: match.playerId,
+    playerId: match.playerId, // Must match request.auth.uid exactly
     type: match.type,
     score: match.score,
     total: match.total,
     avgBuzzTime: match.avgBuzzTime,
-    correctBySubject: match.correctBySubject,
-    questionIds: match.questionIds,
-    hesitationCount: match.hesitationCount,
+    correctBySubject: match.correctBySubject || {},
+    questionIds: match.questionIds || [],
+    hesitationCount: match.hesitationCount || 0,
     startedAt: serverTimestamp(),
     completedAt: serverTimestamp(),
   };
   
-  // Only include optional fields if they're defined
+  // Only include optional fields if they're defined and not empty
   if (match.teamId !== undefined && match.teamId !== null && match.teamId !== '') {
     matchDocData.teamId = match.teamId;
   }
+  
+  // Include totalBySubject if it's defined
+  if (match.totalBySubject !== undefined && match.totalBySubject !== null) {
+    matchDocData.totalBySubject = match.totalBySubject;
+  }
+  
+  // Log the exact data being sent for debugging
+  console.log('Firestore setDoc data:', {
+    playerId: matchDocData.playerId,
+    playerIdType: typeof matchDocData.playerId,
+    gameId: matchDocData.gameId,
+    type: matchDocData.type,
+    score: matchDocData.score,
+    total: matchDocData.total,
+  });
   
   await setDoc(matchRef, matchDocData);
   return matchRef.id;
