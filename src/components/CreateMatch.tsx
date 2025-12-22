@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Play, Users, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getQuestions, createGame, getGame, updateGame, getPlayersByTeam } from '../services/firestore';
+import { useQuestions } from '../context/QuestionsContext';
+import { createGame, getGame, updateGame, getPlayersByTeam } from '../services/firestore';
 import { Question, Game, Player } from '../types/firebase';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -12,20 +13,18 @@ interface CreateMatchProps {
 
 export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
   const { userData } = useAuth();
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const { questions: allQuestions, loading: questionsLoading } = useQuestions();
   const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
   const [numQuestions, setNumQuestions] = useState(10);
-  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [match, setMatch] = useState<Game | null>(null);
   const [joinedPlayers, setJoinedPlayers] = useState<Player[]>([]);
   const [subjectFilter, setSubjectFilter] = useState<string>('');
 
-  useEffect(() => {
-    if (userData?.teamId) {
-      loadQuestions();
-    }
-  }, [userData]);
+  // Filter questions based on subject filter (computed value, not state)
+  const filteredQuestions = subjectFilter
+    ? allQuestions.filter(q => q.subjectArea === subjectFilter)
+    : allQuestions;
 
   useEffect(() => {
     if (match) {
@@ -55,35 +54,6 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
       return () => unsubscribe();
     }
   }, [match, userData]);
-
-  const loadQuestions = async () => {
-    try {
-      setLoading(true);
-      const filters: any = {
-        isPublic: true,
-      };
-
-      if (userData?.teamId) {
-        // Also get team-specific questions
-        const teamQuestions = await getQuestions({ teamId: userData.teamId });
-        const publicQuestions = await getQuestions(filters);
-        const allQuestions = [...teamQuestions, ...publicQuestions];
-        // Deduplicate by ID
-        const uniqueQuestions = Array.from(
-          new Map(allQuestions.map(q => [q.id, q])).values()
-        );
-        setQuestions(uniqueQuestions);
-      } else {
-        const allQuestions = await getQuestions(filters);
-        setQuestions(allQuestions);
-      }
-    } catch (error) {
-      console.error('Error loading questions:', error);
-      alert('Failed to load questions');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleCreateMatch = async () => {
     if (selectedQuestions.length === 0) {
@@ -158,10 +128,6 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
     }
   };
 
-  const filteredQuestions = subjectFilter
-    ? questions.filter(q => q.subjectArea === subjectFilter)
-    : questions;
-
   const handleSelectQuestions = () => {
     // Auto-select random questions based on numQuestions
     const shuffled = [...filteredQuestions].sort(() => Math.random() - 0.5);
@@ -169,7 +135,7 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
     setSelectedQuestions(selected.map(q => q.id));
   };
 
-  if (loading) {
+  if (questionsLoading) {
     return (
       <div 
         className="min-h-screen w-full relative bg-cover bg-center bg-no-repeat flex items-center justify-center"
@@ -260,7 +226,8 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
                     </label>
                     <button
                       onClick={handleSelectQuestions}
-                      className="bg-cyan-500 hover:bg-cyan-400 text-white font-bold py-2 px-4 rounded-lg"
+                      disabled={filteredQuestions.length === 0}
+                      className="bg-cyan-500 hover:bg-cyan-400 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Auto-Select {numQuestions} Questions
                     </button>
@@ -271,7 +238,7 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
                   {selectedQuestions.length > 0 && (
                     <div className="max-h-40 overflow-y-auto space-y-2">
                       {selectedQuestions.map((qId) => {
-                        const q = questions.find(q => q.id === qId);
+                        const q = filteredQuestions.find(q => q.id === qId);
                         return q ? (
                           <div key={qId} className="bg-purple-900 rounded p-2 text-sm text-white flex items-center justify-between">
                             <span className="truncate flex-1">{q.questionText}</span>

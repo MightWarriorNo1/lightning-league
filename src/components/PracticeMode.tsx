@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getQuestions, createGame, createMatchHistory, updatePlayerStats, getPlayer, getUser } from '../services/firestore';
+import { useQuestions } from '../context/QuestionsContext';
+import { createGame, createMatchHistory, updatePlayerStats, getPlayer, getUser } from '../services/firestore';
 import { Question, MatchHistory } from '../types/firebase';
 import { Bolt, ArrowLeft } from 'lucide-react';
 import { auth } from '../config/firebase';
@@ -28,6 +29,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   gameSettings,
 }) => {
   const { userData, currentUser, loading: authLoading } = useAuth();
+  const { questions: allQuestions, loading: questionsLoading } = useQuestions();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [playerScore, setPlayerScore] = useState(0);
@@ -54,8 +56,10 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   const revealIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    loadQuestions();
-  }, []);
+    if (!questionsLoading && allQuestions.length > 0) {
+      loadQuestions();
+    }
+  }, [questionsLoading, allQuestions, practiceMode, numQuestions]);
 
   // Update timer when gameSettings change (if no question is active)
   useEffect(() => {
@@ -76,10 +80,10 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   const loadQuestions = async () => {
     try {
       setLoading(true);
-      const filters: any = {
-        isPublic: true,
-      };
-
+      
+      // Filter questions based on practice mode
+      let availableQuestions = allQuestions;
+      
       if (practiceMode !== 'Mix') {
         const subjectMap: Record<string, string> = {
           'Social Studies': 'SS',
@@ -88,12 +92,11 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
           'Math': 'MA',
           'Arts and Humanities': 'AH',
         };
-        filters.subjectArea = subjectMap[practiceMode] || practiceMode;
+        const subjectCode = subjectMap[practiceMode] || practiceMode;
+        availableQuestions = allQuestions.filter(q => q.subjectArea === subjectCode);
       }
-
-      const allQuestions = await getQuestions(filters);
       
-      if (allQuestions.length === 0) {
+      if (availableQuestions.length === 0) {
         alert('No questions available. Please ask your coach to add questions first.');
         onBack();
         return;
@@ -101,8 +104,8 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
 
       // Shuffle questions but keep each question object intact with its answers
       // This ensures questions and their answers stay locked together
-      const shuffled = [...allQuestions].sort(() => Math.random() - 0.5);
-      const selected = shuffled.slice(0, Math.min(numQuestions, allQuestions.length));
+      const shuffled = [...availableQuestions].sort(() => Math.random() - 0.5);
+      const selected = shuffled.slice(0, Math.min(numQuestions, availableQuestions.length));
       // Verify each question has its correctAnswer and distractors properly set
       const validatedQuestions = selected.map(q => {
         if (!q.correctAnswer || !q.distractors || q.distractors.length === 0) {
