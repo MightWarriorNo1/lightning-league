@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getMatchHistoryByPlayer, getPlayer } from '../services/firestore';
+import { getMatchHistoryByPlayer, getPlayer, getTeam } from '../services/firestore';
 import { MatchHistory, Player } from '../types/firebase';
 import { Trophy } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -10,9 +11,11 @@ interface StudentDashboardProps {
 }
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onBack }) => {
+  const navigate = useNavigate();
   const { userData } = useAuth();
   const [matchHistory, setMatchHistory] = useState<MatchHistory[]>([]);
   const [player, setPlayer] = useState<Player | null>(null);
+  const [teamName, setTeamName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,6 +33,18 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onBack }) =>
       ]);
       setMatchHistory(historyData);
       setPlayer(playerData);
+      
+      // Load team name if teamId exists
+      if (userData.teamId) {
+        try {
+          const team = await getTeam(userData.teamId);
+          if (team) {
+            setTeamName(team.name);
+          }
+        } catch (error) {
+          console.error('Error loading team:', error);
+        }
+      }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {
@@ -80,7 +95,24 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onBack }) =>
       <div className="bg-purple-900 border-4 border-yellow-500 rounded-3xl p-12 max-w-4xl w-full">
         <div className="flex items-center mb-8 border-b border-yellow-500/30 pb-6">
           <Trophy className="text-yellow-500 mr-4" size={48} />
-          <h1 className="text-5xl font-black text-white">MY STATS</h1>
+          <div className="flex-1">
+            <h1 className="text-5xl font-black text-white">MY STATS</h1>
+            {teamName && (
+              <p className="text-cyan-400 text-sm mt-1">Team: {teamName}</p>
+            )}
+            {!teamName && userData?.teamId && (
+              <p className="text-cyan-400 text-sm mt-1">Team ID: {userData.teamId}</p>
+            )}
+          </div>
+          {player?.avatar && (
+            <div className="ml-4">
+              <img
+                src={`/Avatars/AVATAR- Transparent/${player.avatar}.png`}
+                alt={player.avatar}
+                className="w-24 h-24 drop-shadow-lg"
+              />
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-6 mb-8">
@@ -142,9 +174,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onBack }) =>
           </div>
         </div>
 
-        <button onClick={onBack} className="w-full bg-yellow-500 hover:bg-orange-500 text-black font-black text-2xl py-4 rounded-xl">
-          BACK TO LOBBY
-        </button>
+        <div className="flex gap-4">
+          <button 
+            onClick={() => navigate('/avatar-selection')}
+            className="flex-1 bg-cyan-500 hover:bg-cyan-600 text-white font-black text-xl py-4 rounded-xl"
+          >
+            CHANGE AVATAR
+          </button>
+          <button onClick={onBack} className="flex-1 bg-yellow-500 hover:bg-orange-500 text-black font-black text-2xl py-4 rounded-xl">
+            BACK TO LOBBY
+          </button>
+        </div>
       </div>
       </div>
     </div>

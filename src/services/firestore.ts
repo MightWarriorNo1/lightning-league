@@ -13,6 +13,8 @@ import {
   serverTimestamp,
   Timestamp,
   writeBatch,
+  onSnapshot,
+  arrayUnion,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import {
@@ -243,9 +245,53 @@ export const updateGame = async (gameId: string, updates: Partial<Game>) => {
 export const getGame = async (gameId: string) => {
   const gameDoc = await getDoc(doc(db, 'games', gameId));
   if (gameDoc.exists()) {
-    return { id: gameDoc.id, ...gameDoc.data() } as Game;
+    const data = gameDoc.data();
+    return { 
+      id: gameDoc.id, 
+      ...data,
+      startedAt: data.startedAt?.toDate() || new Date(),
+      endedAt: data.endedAt?.toDate(),
+    } as Game;
   }
   return null;
+};
+
+export const joinMatch = async (gameId: string, playerId: string) => {
+  const gameRef = doc(db, 'games', gameId);
+  const gameDoc = await getDoc(gameRef);
+  
+  if (!gameDoc.exists()) {
+    throw new Error('Match not found');
+  }
+  
+  const gameData = gameDoc.data();
+  const playerIds = gameData.playerIds || [];
+  
+  if (playerIds.includes(playerId)) {
+    throw new Error('You have already joined this match');
+  }
+  
+  if (gameData.status !== 'waiting') {
+    throw new Error('Match is not accepting new players');
+  }
+  
+  await updateDoc(gameRef, {
+    playerIds: [...playerIds, playerId],
+  });
+};
+
+export const getGamesByMatchId = async (matchId: string) => {
+  const q = query(gamesCollection, where('matchId', '==', matchId));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      startedAt: data.startedAt?.toDate() || new Date(),
+      endedAt: data.endedAt?.toDate(),
+    };
+  }) as Game[];
 };
 
 // Users Collection
@@ -254,9 +300,45 @@ export const usersCollection = collection(db, 'users');
 export const getUser = async (userId: string) => {
   const userDoc = await getDoc(doc(db, 'users', userId));
   if (userDoc.exists()) {
-    return { id: userDoc.id, ...userDoc.data() } as User;
+    const data = userDoc.data();
+    return {
+      uid: userDoc.id,
+      email: data.email || '',
+      displayName: data.displayName,
+      role: data.role,
+      teamId: data.teamId,
+      createdAt: data.createdAt?.toDate() || new Date(),
+      lastActive: data.lastActive?.toDate() || new Date(),
+    } as User;
   }
   return null;
+};
+
+// Admin functions for user management
+export const getAllUsers = async () => {
+  const snapshot = await getDocs(usersCollection);
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      uid: doc.id,
+      email: data.email || '',
+      displayName: data.displayName,
+      role: data.role,
+      teamId: data.teamId,
+      createdAt: data.createdAt?.toDate() || new Date(),
+      lastActive: data.lastActive?.toDate() || new Date(),
+    } as User;
+  });
+};
+
+export const deleteUser = async (userId: string) => {
+  // Delete user document
+  await deleteDoc(doc(db, 'users', userId));
+  // Also delete associated player document if it exists
+  const playerDoc = await getDoc(doc(db, 'players', userId));
+  if (playerDoc.exists()) {
+    await deleteDoc(doc(db, 'players', userId));
+  }
 };
 
 // Match History Collection
@@ -358,12 +440,28 @@ export const getTeamLeaderboard = async (teamId: string) => {
 export const settingsCollection = collection(db, 'settings');
 
 export const getGameSettings = async (teamId?: string) => {
-  const settingsRef = doc(db, 'settings', teamId || 'default');
-  const settingsDoc = await getDoc(settingsRef);
-  if (settingsDoc.exists()) {
-    return settingsDoc.data() as GameSettings;
+  // First, try to get team-specific settings
+  if (teamId) {
+    const teamSettingsRef = doc(db, 'settings', teamId);
+    const teamSettingsDoc = await getDoc(teamSettingsRef);
+    if (teamSettingsDoc.exists()) {
+      const data = teamSettingsDoc.data();
+      console.log(`Found team-specific settings for teamId: ${teamId}`, data);
+      return data as GameSettings;
+    }
   }
-  // Return default settings
+  
+  // Fallback to 'default' settings if team-specific doesn't exist
+  const defaultSettingsRef = doc(db, 'settings', 'default');
+  const defaultSettingsDoc = await getDoc(defaultSettingsRef);
+  if (defaultSettingsDoc.exists()) {
+    const data = defaultSettingsDoc.data();
+    console.log('Using default settings document', data);
+    return data as GameSettings;
+  }
+  
+  // Return hardcoded defaults only if no settings exist in database
+  console.log('No settings found in database, using hardcoded defaults');
   return {
     questionTime: 10,
     hesitationTime: 5,

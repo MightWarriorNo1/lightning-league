@@ -43,7 +43,7 @@ export const RoleSelectPage: React.FC = () => {
             </label>
             <input
               type="range"
-              min="5"
+              min="0"
               max="30"
               step="5"
               value={numQuestions}
@@ -51,7 +51,7 @@ export const RoleSelectPage: React.FC = () => {
               className="w-full h-2 bg-purple-950 rounded-lg cursor-pointer"
             />
             <div className="flex justify-between text-xs text-white/50 mt-1">
-              <span>5</span>
+              <span>0</span>
               <span>10</span>
               <span>20</span>
               <span>30</span>

@@ -57,6 +57,14 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     loadQuestions();
   }, []);
 
+  // Update timer when gameSettings change (if no question is active)
+  useEffect(() => {
+    if (questionStartTime === null) {
+      console.log('Updating timer from gameSettings:', gameSettings);
+      setTimer(gameSettings.questionTime);
+    }
+  }, [gameSettings.questionTime, questionStartTime]);
+
   // Start first question when questions are loaded and game is created
   useEffect(() => {
     if (questions.length > 0 && gameId && currentQuestionIndex === 0 && questionStartTime === null) {
@@ -165,6 +173,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     setShowResult(false);
     setShowCorrect(false);
     setShowIncorrect(false);
+    console.log('Starting question with settings:', gameSettings);
     setTimer(gameSettings.questionTime);
     setQuestionStartTime(Date.now());
   };

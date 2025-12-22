@@ -6,7 +6,7 @@ import {
   signOut,
   onAuthStateChanged,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import { User, UserRole } from '../types/firebase';
 
@@ -19,6 +19,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   isCoach: boolean;
   isStudent: boolean;
+  isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -67,6 +68,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
+    let finalTeamId = teamId;
+
+    // If coach, auto-create team and assign TeamID
+    if (role === 'coach') {
+      // Generate a unique TeamID (6-character alphanumeric code)
+      const generateTeamId = () => {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        for (let i = 0; i < 6; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      };
+
+      finalTeamId = generateTeamId();
+
+      // Create team document
+      const teamRef = doc(db, 'teams', finalTeamId);
+      await setDoc(teamRef, {
+        id: finalTeamId,
+        name: `${displayName}'s Team`, // Default team name
+        coachId: user.uid,
+        playerIds: [],
+        createdAt: serverTimestamp(),
+      });
+    }
+
     // Create user document in Firestore
     // Only include teamId if it's defined (Firestore doesn't allow undefined values)
     const userDocData: any = {
@@ -79,17 +107,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     // Only add teamId if it's defined
-    if (teamId !== undefined && teamId !== null && teamId !== '') {
-      userDocData.teamId = teamId;
+    if (finalTeamId !== undefined && finalTeamId !== null && finalTeamId !== '') {
+      userDocData.teamId = finalTeamId;
     }
 
     await setDoc(doc(db, 'users', user.uid), userDocData);
 
     // If student, create player document
-    if (role === 'student' && teamId) {
+    if (role === 'student' && finalTeamId) {
       await setDoc(doc(db, 'players', user.uid), {
         userId: user.uid,
-        teamId,
+        teamId: finalTeamId,
         displayName,
         gamesPlayed: 0,
         totalScore: 0,
@@ -119,6 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     isCoach: userData?.role === 'coach',
     isStudent: userData?.role === 'student',
+    isAdmin: userData?.role === 'admin',
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

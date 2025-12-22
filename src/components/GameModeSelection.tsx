@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getGameSettings } from '../services/firestore';
 import { ArrowLeft } from 'lucide-react';
 
 interface GameModeSelectionProps {
@@ -24,6 +25,34 @@ export const GameModeSelection: React.FC<GameModeSelectionProps> = ({ onBack }) 
   const [practiceMode, setPracticeMode] = useState<'questions' | 'time'>('questions');
   const [numQuestions, setNumQuestions] = useState(10);
   const [timeMinutes, setTimeMinutes] = useState(5);
+  const [coachSettings, setCoachSettings] = useState<{ questionTime: number; hesitationTime: number; wpm: number } | null>(null);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+
+  const loadCoachSettings = useCallback(async () => {
+    try {
+      setLoadingSettings(true);
+      const settings = await getGameSettings(userData?.teamId);
+      if (settings) {
+        setCoachSettings({
+          questionTime: settings.questionTime,
+          hesitationTime: settings.hesitationTime,
+          wpm: settings.wpm,
+        });
+      }
+    } catch (error) {
+      console.error('Error loading coach settings:', error);
+    } finally {
+      setLoadingSettings(false);
+    }
+  }, [userData?.teamId]);
+
+  useEffect(() => {
+    if (userData && userData.role === 'student') {
+      loadCoachSettings();
+    } else {
+      setLoadingSettings(false);
+    }
+  }, [userData, loadCoachSettings]);
 
   const handleSubjectToggle = (value: string) => {
     if (value === 'ALL') {
@@ -73,9 +102,8 @@ export const GameModeSelection: React.FC<GameModeSelectionProps> = ({ onBack }) 
       }
       navigate(`/practice-mode?${params.toString()}`);
     } else {
-      // Match play - navigate to match play (to be implemented)
-      // For now, show message that match length is set by coach
-      alert('Match Play length is determined by your Team Coach. Please contact your coach to start a match.');
+      // Match play - navigate to match join page
+      navigate('/match-join');
     }
   };
 
@@ -215,7 +243,7 @@ export const GameModeSelection: React.FC<GameModeSelectionProps> = ({ onBack }) 
                   </label>
                   <input
                     type="range"
-                    min="1"
+                    min="0"
                     max="30"
                     step="1"
                     value={timeMinutes}
@@ -223,13 +251,43 @@ export const GameModeSelection: React.FC<GameModeSelectionProps> = ({ onBack }) 
                     className="w-full h-2 bg-purple-950 rounded-lg cursor-pointer"
                   />
                   <div className="flex justify-between text-xs text-white/50 mt-1">
-                    <span>1</span>
+                    <span>0</span>
                     <span>10</span>
                     <span>20</span>
                     <span>30</span>
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Coach Settings Display (for students) */}
+          {userData?.role === 'student' && gameMode === 'practice' && (
+            <div className="mb-6 p-4 bg-purple-950 border-2 border-cyan-400/50 rounded-xl">
+              <h3 className="text-cyan-400 font-bold uppercase mb-3 text-sm">Coach Settings (Read-Only)</h3>
+              {loadingSettings ? (
+                <p className="text-white/70 text-sm">Loading settings...</p>
+              ) : coachSettings ? (
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <div className="text-white/70 uppercase text-xs mb-1">Question Timer</div>
+                    <div className="text-cyan-400 font-bold text-lg">{coachSettings.questionTime}s</div>
+                  </div>
+                  <div>
+                    <div className="text-white/70 uppercase text-xs mb-1">Hesitation Timer</div>
+                    <div className="text-cyan-400 font-bold text-lg">{coachSettings.hesitationTime}s</div>
+                  </div>
+                  <div>
+                    <div className="text-white/70 uppercase text-xs mb-1">Reading Speed</div>
+                    <div className="text-cyan-400 font-bold text-lg">{coachSettings.wpm} WPM</div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-white/70 text-sm">Settings not available. Your coach will set these values.</p>
+              )}
+              <p className="text-white/50 text-xs mt-3 italic">
+                These settings are set by your Team Coach and cannot be changed.
+              </p>
             </div>
           )}
 

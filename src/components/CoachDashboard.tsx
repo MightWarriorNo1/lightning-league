@@ -24,6 +24,8 @@ interface CoachDashboardProps {
   onStudentRoster?: () => void;
   onPerformanceReports?: () => void;
   onGameSettings?: () => void;
+  onTeamManagement?: () => void;
+  onCreateMatch?: () => void;
 }
 
 export function CoachDashboard({ 
@@ -36,6 +38,8 @@ export function CoachDashboard({
   onStudentRoster,
   onPerformanceReports,
   onGameSettings,
+  onTeamManagement,
+  onCreateMatch,
 }: CoachDashboardProps) {
   const { userData, loading: authLoading } = useAuth();
   const [students, setStudents] = useState<Player[]>([]);
@@ -172,6 +176,26 @@ export function CoachDashboard({
                   >
                     <Settings className="w-5 h-5" />
                     <span>Game Settings</span>
+                  </button>
+                )}
+
+                {onTeamManagement && (
+                  <button
+                    onClick={onTeamManagement}
+                    className="w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold py-4 px-6 rounded-lg flex items-center justify-center space-x-2 transition-colors"
+                  >
+                    <Users className="w-5 h-5" />
+                    <span>Team Management</span>
+                  </button>
+                )}
+
+                {onCreateMatch && (
+                  <button
+                    onClick={onCreateMatch}
+                    className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-4 px-6 rounded-lg flex items-center justify-center space-x-2 transition-colors"
+                  >
+                    <Play className="w-5 h-5" />
+                    <span>Create Match</span>
                   </button>
                 )}
 
