@@ -135,9 +135,37 @@ export const createTeam = async (team: Omit<Team, 'id' | 'createdAt'>) => {
 export const getTeam = async (teamId: string) => {
   const teamDoc = await getDoc(doc(db, 'teams', teamId));
   if (teamDoc.exists()) {
-    return { id: teamDoc.id, ...teamDoc.data() } as Team;
+    return { id: teamDoc.id, ...teamDoc.data(), createdAt: teamDoc.data().createdAt?.toDate() || new Date() } as Team;
   }
   return null;
+};
+
+export const getTeamByCoach = async (coachId: string) => {
+  const q = query(teamsCollection, where('coachId', '==', coachId));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) {
+    return null;
+  }
+  const teamDoc = snapshot.docs[0];
+  return { id: teamDoc.id, ...teamDoc.data(), createdAt: teamDoc.data().createdAt?.toDate() || new Date() } as Team;
+};
+
+export const updateTeam = async (teamId: string, updates: Partial<Team>) => {
+  const teamRef = doc(db, 'teams', teamId);
+  await updateDoc(teamRef, updates);
+};
+
+export const createPlayer = async (player: Omit<Player, 'id' | 'createdAt'>) => {
+  const playerRef = doc(playersCollection);
+  await setDoc(playerRef, {
+    ...player,
+    createdAt: serverTimestamp(),
+  });
+  return playerRef.id;
+};
+
+export const deletePlayer = async (playerId: string) => {
+  await deleteDoc(doc(db, 'players', playerId));
 };
 
 // Players Collection

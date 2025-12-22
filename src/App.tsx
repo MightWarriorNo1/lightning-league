@@ -16,6 +16,7 @@ import { QuestionValidationPage } from './pages/QuestionValidationPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
 import { GameModeSelectionPage } from './pages/GameModeSelectionPage';
+import { TeamManagementPage } from './pages/TeamManagementPage';
 
 const App = () => {
   const { loading: authLoading } = useAuth();

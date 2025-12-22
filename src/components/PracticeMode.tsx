@@ -202,16 +202,19 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   }, [currentQuestionIndex, questions, gameSettings.wpm, hasBuzzed]);
 
   useEffect(() => {
-    const shouldRunTimer = questionFullyRevealed && timer > 0;
+    // Question timer only runs if question is fully revealed AND buzzer hasn't been clicked
+    // If buzzer is clicked, question timer stops and hesitation timer takes over
+    const shouldRunTimer = questionFullyRevealed && timer > 0 && !hasBuzzed;
 
     if (shouldRunTimer) {
       const interval = setInterval(() => setTimer((t) => t - 1), 1000);
       return () => clearInterval(interval);
-    } else if (timer === 0 && questionFullyRevealed) {
+    } else if (timer === 0 && questionFullyRevealed && !hasBuzzed) {
+      // Timer expired without buzzing - move to next question
       handleTimeExpired();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timer, questionFullyRevealed]);
+  }, [timer, questionFullyRevealed, hasBuzzed]);
 
   const handleBuzz = () => {
     if (hasBuzzed || questionStartTime === null) return;
@@ -225,12 +228,16 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     const buzzTime = (Date.now() - questionStartTime) / 1000;
     setBuzzTimes((prev) => [...prev, buzzTime]);
     setHasBuzzed(true);
-    // Don't set hesitation timer here - it will be set automatically when questionFullyRevealed becomes true
-    setHesitationComplete(false); // Reset hesitation complete flag
-    setShowHesitation(false); // Reset hesitation display
+    
+    // Stop question timer by setting it to 0 (timer effect checks hasBuzzed, so it won't run)
+    // The question timer stops when hasBuzzed is true
+    
+    // Mark question as fully revealed so hesitation timer can start
     setQuestionFullyRevealed(true);
-    // Reset timer to questionTime when buzzed (instead of setting to 0)
-    setTimer(gameSettings.questionTime);
+    
+    // Reset hesitation state
+    setHesitationComplete(false);
+    setShowHesitation(false);
     
     console.log('Buzz clicked:', {
       hesitationTime: gameSettings.hesitationTime,
@@ -238,13 +245,13 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     });
   };
 
-  // Start hesitation timer when question is fully revealed (either naturally or by buzzing)
+  // Start hesitation timer when buzzer is clicked (hasBuzzed becomes true)
   useEffect(() => {
-    if (questionFullyRevealed && hesitationTimer === null && !hesitationComplete && !showResult) {
-      console.log('Question fully revealed, starting hesitation timer');
+    if (hasBuzzed && hesitationTimer === null && !hesitationComplete && !showResult) {
+      console.log('Buzzer clicked, starting hesitation timer');
       setHesitationTimer(gameSettings.hesitationTime);
     }
-  }, [questionFullyRevealed, hesitationTimer, hesitationComplete, showResult, gameSettings.hesitationTime]);
+  }, [hasBuzzed, hesitationTimer, hesitationComplete, showResult, gameSettings.hesitationTime]);
 
   // Hesitation timer countdown
   useEffect(() => {
@@ -340,7 +347,8 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
       setShowResult(false);
       const nextIndex = currentQuestionIndex + 1;
       if (nextIndex >= questions.length) {
-        endGame();
+        // Pass current score (no change since no answer was selected)
+        endGame(playerScore);
       } else {
         setCurrentQuestionIndex(nextIndex);
         startQuestion();
@@ -363,6 +371,9 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
       [currentQuestion.subjectArea]: (prev[currentQuestion.subjectArea] || 0) + 1,
     }));
 
+    // Calculate the updated score immediately
+    const updatedScore = isCorrect ? playerScore + 1 : playerScore;
+
     if (isCorrect) {
       setPlayerScore((prev) => prev + 1);
       setShowCorrect(true);
@@ -379,7 +390,8 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
       setShowIncorrect(false);
       const nextIndex = currentQuestionIndex + 1;
       if (nextIndex >= questions.length) {
-        endGame();
+        // Pass the updated score to ensure the last question's point is included
+        endGame(updatedScore);
       } else {
         setCurrentQuestionIndex(nextIndex);
         startQuestion();
@@ -387,7 +399,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     }, 2000);
   };
 
-  const endGame = async () => {
+  const endGame = async (finalScore?: number) => {
     // Ensure auth is fully loaded before proceeding
     if (authLoading) {
       console.error('Cannot save match history: Auth still loading');
@@ -438,12 +450,15 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
       ? buzzTimes.reduce((a, b) => a + b, 0) / buzzTimes.length
       : 0;
 
+    // Use finalScore if provided (to ensure last question score is included), otherwise use current state
+    const finalPlayerScore = finalScore !== undefined ? finalScore : playerScore;
+
     const matchHistory: Omit<MatchHistory, 'id' | 'startedAt' | 'completedAt'> = {
       gameId,
       playerId: playerId, // Use currentUser.uid to match request.auth.uid
       teamId: userData.teamId,
       type: 'practice',
-      score: playerScore,
+      score: finalPlayerScore,
       total: questions.length,
       avgBuzzTime: parseFloat(avgBuzzTime.toFixed(2)),
       correctBySubject,
@@ -604,7 +619,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
       
       // Calculate new averages
       const newGamesPlayed = currentGamesPlayed + 1;
-      const newTotalScore = currentTotalScore + playerScore;
+      const newTotalScore = currentTotalScore + finalPlayerScore;
       const newTotalQuestions = currentTotalQuestions + questions.length;
       const newAvgBuzzTime = buzzTimes.length > 0
         ? ((currentPlayer?.avgBuzzTime || 0) * currentGamesPlayed + avgBuzzTime) / newGamesPlayed
@@ -633,7 +648,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
       
       console.log('Player stats updated successfully!');
 
-      alert(`Practice Complete! Final Score: ${playerScore}/${questions.length}`);
+      alert(`Practice Complete! Final Score: ${finalPlayerScore}/${questions.length}`);
       onBack();
     } catch (error: any) {
       console.error('Error saving match history:', error);
@@ -660,7 +675,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
         errorMessage = error.message;
       }
       
-      alert(`Game completed but failed to save results.\n\nError: ${errorMessage}\n\nYour score: ${playerScore}/${questions.length}`);
+      alert(`Game completed but failed to save results.\n\nError: ${errorMessage}\n\nYour score: ${finalPlayerScore}/${questions.length}`);
       onBack();
     }
   };
@@ -763,56 +778,74 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
             cx="80"
             cy="80"
             r={60}
-            stroke={timer <= 3 ? '#ef4444' : '#00B8FF'}
+            stroke={(() => {
+              if (hasBuzzed && hesitationTimer !== null) {
+                return hesitationTimer <= 3 ? '#ef4444' : '#00B8FF';
+              }
+              return timer <= 3 ? '#ef4444' : '#00B8FF';
+            })()}
             strokeWidth="12"
             fill="none"
             strokeDasharray={2 * Math.PI * 60}
-            strokeDashoffset={2 * Math.PI * 60 * (1 - timer / gameSettings.questionTime)}
+            strokeDashoffset={2 * Math.PI * 60 * (1 - (() => {
+              if (hasBuzzed && hesitationTimer !== null) {
+                return hesitationTimer / gameSettings.hesitationTime;
+              }
+              return timer / gameSettings.questionTime;
+            })())}
             strokeLinecap="round"
             className="transition-all duration-1000"
           />
         </svg>
         <div className="absolute flex flex-col items-center">
-          <span className={`text-6xl font-black ${timer <= 3 ? 'text-red-500 animate-pulse' : 'text-white'}`}>
-            {timer}
+          <span className={`text-6xl font-black ${(() => {
+            if (hasBuzzed && hesitationTimer !== null) {
+              return hesitationTimer <= 3 ? 'text-red-500 animate-pulse' : 'text-white';
+            }
+            return timer <= 3 ? 'text-red-500 animate-pulse' : 'text-white';
+          })()}`}>
+            {hasBuzzed && hesitationTimer !== null ? hesitationTimer : timer}
           </span>
         </div>
       </div>
 
-      <div className="relative w-full max-w-4xl mx-auto mb-8">
-        {/* Show question when question is fully revealed (immediately after buzz or when fully revealed) */}
-        {currentQuestion && questionFullyRevealed && (
-          <div className="bg-purple-950/90 border-2 border-cyan-400 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
-            <h2 className="text-3xl md:text-5xl font-black text-white">
-              {currentQuestion.questionText}
-            </h2>
-          </div>
-        )}
-        
-        {/* Show question during word-by-word reveal (before buzz) */}
-        {currentQuestion && !questionFullyRevealed && !hasBuzzed && (
-          <div className="bg-purple-950/90 border-2 border-cyan-400 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
-            <h2 className="text-3xl md:text-5xl font-black text-white">
-              {revealedText}
-              <span className="animate-pulse text-cyan-400">|</span>
-            </h2>
-          </div>
-        )}
-        
-        {/* Hesitation message overlay - appears above question during hesitation period (in all cases) */}
-        {showHesitation && !showResult && (
-          <div className="absolute inset-0 flex items-center justify-center z-10">
-            <div className="bg-red-900/95 border-4 border-red-500 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
-              <h2 className="text-4xl md:text-6xl font-black text-red-400 uppercase">
-                HESITATION
+      {/* Question section - completely disappears after buzzing */}
+      {!hasBuzzed && (
+        <div className="relative w-full max-w-4xl mx-auto mb-8">
+          {/* Show question when question is fully revealed (naturally, without buzzing) */}
+          {currentQuestion && questionFullyRevealed && (
+            <div className="bg-purple-950/90 border-2 border-cyan-400 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
+              <h2 className="text-3xl md:text-5xl font-black text-white">
+                {currentQuestion.questionText}
               </h2>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+          
+          {/* Show question during word-by-word reveal (before buzz) */}
+          {currentQuestion && !questionFullyRevealed && (
+            <div className="bg-purple-950/90 border-2 border-cyan-400 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
+              <h2 className="text-3xl md:text-5xl font-black text-white">
+                {revealedText}
+                <span className="animate-pulse text-cyan-400">|</span>
+              </h2>
+            </div>
+          )}
+          
+          {/* Hesitation message overlay - appears above question during hesitation period */}
+          {showHesitation && !showResult && (
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+              <div className="bg-red-900/95 border-4 border-red-500 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
+                <h2 className="text-4xl md:text-6xl font-black text-red-400 uppercase">
+                  HESITATION
+                </h2>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Show buzzer button only when not buzzed and question not fully revealed */}
-      {!hasBuzzed && !questionFullyRevealed ? (
+      {/* Show buzzer button when not buzzed (available until buzzed or timer expires) */}
+      {!hasBuzzed ? (
         <button
           onClick={handleBuzz}
           disabled={!isQuestionLive}
@@ -823,8 +856,8 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
           <Bolt size={80} className="text-yellow-900" fill="currentColor" />
         </button>
       ) : (
-        /* Show answer choices immediately when question is fully revealed (after buzz or natural reveal) */
-        questionFullyRevealed && currentQuestion && shuffledAnswersQuestionId === currentQuestion.id && (
+        /* Show answer choices ONLY after buzzer is clicked */
+        hasBuzzed && currentQuestion && shuffledAnswersQuestionId === currentQuestion.id && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl">
             {shuffledAnswers.map((answer, idx) => {
               const labels = ['A', 'B', 'C', 'D'];
