@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthContext';
-import { getQuestions } from '../services/firestore';
+import { getQuestions, getTeam } from '../services/firestore';
 import { Question } from '../types/firebase';
 
 interface QuestionsContextType {
@@ -71,9 +71,21 @@ export const QuestionsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const allQuestions = questionResults.flat();
 
         // Deduplicate by ID
-        const uniqueQuestions = Array.from(
+        let uniqueQuestions = Array.from(
           new Map(allQuestions.map(q => [q.id, q])).values()
         );
+
+        // Filter questions by team level if team has levels set
+        if (userData.teamId) {
+          const team = await getTeam(userData.teamId);
+          if (team && team.levels && team.levels.length > 0) {
+            // Only show questions that match the team's levels
+            uniqueQuestions = uniqueQuestions.filter(q => 
+              team.levels!.includes(q.level)
+            );
+          }
+        }
+
         setQuestions(uniqueQuestions);
       } else {
         // For admin or other roles: get all public questions

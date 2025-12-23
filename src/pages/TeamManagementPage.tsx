@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, ArrowLeft, Copy, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getTeam, updateTeam, getPlayersByTeam, createTeamForCoach } from '../services/firestore';
+import { getTeam, updateTeam, getPlayersByTeam, createTeamForCoach, getQuestions } from '../services/firestore';
+import { Question } from '../types/firebase';
 
 export const TeamManagementPage: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +15,7 @@ export const TeamManagementPage: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [studentCount, setStudentCount] = useState(0);
+  const [questionCount, setQuestionCount] = useState(0);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -44,11 +46,52 @@ export const TeamManagementPage: React.FC = () => {
       // Load student count
       const players = await getPlayersByTeam(userData.teamId);
       setStudentCount(players.length);
+      
+      // Load questions matching team levels
+      await loadQuestionCount(teamData?.levels || []);
     } catch (error) {
       console.error('Error loading team:', error);
       alert('Failed to load team information');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadQuestionCount = async (teamLevels: ('EL' | 'MS' | 'HS')[]) => {
+    if (!userData?.teamId || teamLevels.length === 0) {
+      setQuestionCount(0);
+      return;
+    }
+
+    try {
+      // Get all questions available to the coach: public + team-specific + coach-created
+      const questionPromises: Promise<Question[]>[] = [
+        getQuestions({ isPublic: true }),
+      ];
+
+      if (userData.teamId) {
+        questionPromises.push(getQuestions({ teamId: userData.teamId }));
+      }
+
+      questionPromises.push(getQuestions({ coachId: userData.uid }));
+
+      const questionResults = await Promise.all(questionPromises);
+      const allQuestions = questionResults.flat();
+
+      // Deduplicate by ID
+      const uniqueQuestions = Array.from(
+        new Map(allQuestions.map(q => [q.id, q])).values()
+      );
+
+      // Filter questions by team levels
+      const matchingQuestions = uniqueQuestions.filter(q => 
+        teamLevels.includes(q.level)
+      );
+
+      setQuestionCount(matchingQuestions.length);
+    } catch (error) {
+      console.error('Error loading question count:', error);
+      setQuestionCount(0);
     }
   };
 
@@ -70,6 +113,16 @@ export const TeamManagementPage: React.FC = () => {
       setSaving(false);
     }
   };
+
+  // Update question count when levels change
+  useEffect(() => {
+    if (userData?.teamId && levels.length > 0) {
+      loadQuestionCount(levels);
+    } else {
+      setQuestionCount(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [levels, userData?.teamId]);
 
   const handleCopyTeamId = () => {
     if (userData?.teamId) {
@@ -398,10 +451,14 @@ export const TeamManagementPage: React.FC = () => {
           {/* Team Stats */}
           <div className="bg-purple-950 rounded-xl p-6 mb-6 border-2 border-cyan-400/30">
             <h3 className="text-cyan-400 font-bold uppercase mb-4">Team Statistics</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="bg-purple-900 rounded-lg p-4 text-center">
                 <div className="text-white/70 text-sm uppercase mb-1">Total Students</div>
                 <div className="text-3xl font-black text-cyan-400">{studentCount}</div>
+              </div>
+              <div className="bg-purple-900 rounded-lg p-4 text-center">
+                <div className="text-white/70 text-sm uppercase mb-1">Questions (Level Match)</div>
+                <div className="text-3xl font-black text-cyan-400">{questionCount}</div>
               </div>
               <div className="bg-purple-900 rounded-lg p-4 text-center">
                 <div className="text-white/70 text-sm uppercase mb-1">Team Status</div>
