@@ -117,7 +117,7 @@ export const PerformanceReportsPage: React.FC = () => {
         >
           <ArrowLeft className="w-6 h-6 text-black" />
         </button>
-        <div className="bg-purple-900 border-4 border-green-400 rounded-3xl p-12 max-w-6xl w-full">
+        <div className="bg-purple-900 border-4 border-green-400 rounded-3xl p-8 max-w-6xl w-full">
           <div className="flex items-center mb-8 border-b border-green-400/30 pb-6">
             <Trophy className="text-green-400 mr-4" size={48} />
             <h1 className="text-4xl font-black text-white">PERFORMANCE REPORTS</h1>

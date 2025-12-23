@@ -168,7 +168,7 @@ const generateTeamId = (): string => {
 };
 
 // Create a team with a generated TeamID for a coach
-export const createTeamForCoach = async (coachId: string, teamName: string): Promise<string> => {
+export const createTeamForCoach = async (coachId: string, teamName: string, levels?: ('EL' | 'MS' | 'HS')[]): Promise<string> => {
   // Generate a unique TeamID
   let teamId = generateTeamId();
   
@@ -191,13 +191,20 @@ export const createTeamForCoach = async (coachId: string, teamName: string): Pro
   
   // Create team document with TeamID as document ID
   const teamRef = doc(db, 'teams', teamId);
-  await setDoc(teamRef, {
+  const teamData: any = {
     id: teamId,
     name: teamName,
     coachId: coachId,
     playerIds: [],
     createdAt: serverTimestamp(),
-  });
+  };
+  
+  // Only include levels if provided
+  if (levels && levels.length > 0) {
+    teamData.levels = levels;
+  }
+  
+  await setDoc(teamRef, teamData);
   
   // Update user document with teamId
   const userRef = doc(db, 'users', coachId);

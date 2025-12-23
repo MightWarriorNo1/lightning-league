@@ -8,6 +8,7 @@ export const TeamManagementPage: React.FC = () => {
   const navigate = useNavigate();
   const { userData, refreshUserData } = useAuth();
   const [teamName, setTeamName] = useState('');
+  const [levels, setLevels] = useState<('EL' | 'MS' | 'HS')[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -37,6 +38,7 @@ export const TeamManagementPage: React.FC = () => {
       const teamData = await getTeam(userData.teamId);
       if (teamData) {
         setTeamName(teamData.name);
+        setLevels(teamData.levels || []);
       }
       
       // Load student count
@@ -58,12 +60,12 @@ export const TeamManagementPage: React.FC = () => {
 
     try {
       setSaving(true);
-      await updateTeam(userData.teamId, { name: teamName.trim() });
+      await updateTeam(userData.teamId, { name: teamName.trim(), levels });
       await loadTeam();
-      alert('Team name updated successfully!');
+      alert('Team updated successfully!');
     } catch (error) {
       console.error('Error saving team:', error);
-      alert('Failed to save team name');
+      alert('Failed to save team');
     } finally {
       setSaving(false);
     }
@@ -91,7 +93,7 @@ export const TeamManagementPage: React.FC = () => {
     try {
       setCreating(true);
       setError('');
-      await createTeamForCoach(userData.uid, teamName.trim());
+      await createTeamForCoach(userData.uid, teamName.trim(), levels);
       
       // Refresh user data to get the new teamId
       await refreshUserData();
@@ -190,6 +192,59 @@ export const TeamManagementPage: React.FC = () => {
               </p>
             </div>
 
+            <div className="bg-purple-950 rounded-xl p-6 mb-6 border-2 border-cyan-400/30">
+              <label className="block text-cyan-400 text-sm font-bold uppercase mb-3">
+                Level
+              </label>
+              <div className="space-y-3">
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={levels.includes('EL')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setLevels([...levels, 'EL']);
+                      } else {
+                        setLevels(levels.filter(l => l !== 'EL'));
+                      }
+                    }}
+                    className="w-5 h-5 text-cyan-400 bg-purple-900 border-cyan-400 rounded focus:ring-cyan-400 focus:ring-2"
+                  />
+                  <span className="ml-3 text-white font-bold text-lg">Elementary</span>
+                </label>
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={levels.includes('MS')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setLevels([...levels, 'MS']);
+                      } else {
+                        setLevels(levels.filter(l => l !== 'MS'));
+                      }
+                    }}
+                    className="w-5 h-5 text-cyan-400 bg-purple-900 border-cyan-400 rounded focus:ring-cyan-400 focus:ring-2"
+                  />
+                  <span className="ml-3 text-white font-bold text-lg">Middle</span>
+                </label>
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={levels.includes('HS')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setLevels([...levels, 'HS']);
+                      } else {
+                        setLevels(levels.filter(l => l !== 'HS'));
+                      }
+                    }}
+                    className="w-5 h-5 text-cyan-400 bg-purple-900 border-cyan-400 rounded focus:ring-cyan-400 focus:ring-2"
+                  />
+                  <span className="ml-3 text-white font-bold text-lg">High</span>
+                </label>
+              </div>
+            </div>
+
             <div className="flex gap-4 pt-6 border-t border-cyan-400/30">
               <button
                 onClick={() => navigate('/coach-dashboard')}
@@ -221,7 +276,7 @@ export const TeamManagementPage: React.FC = () => {
       }}
     >
       {/* Overlay interactive elements on top of background */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center px-4 overflow-auto">
+      <div className="inset-0 flex flex-col items-center justify-center px-4 overflow-auto">
         {/* Back button */}
         <button
           onClick={() => navigate('/coach-dashboard')}
@@ -284,6 +339,60 @@ export const TeamManagementPage: React.FC = () => {
             <p className="text-white/70 text-sm mt-3">
               This name will be displayed to students after they enter your Team ID.
             </p>
+          </div>
+
+          {/* Level Section */}
+          <div className="bg-purple-950 rounded-xl p-6 mb-6 border-2 border-cyan-400/30">
+            <label className="block text-cyan-400 text-sm font-bold uppercase mb-3">
+              Level
+            </label>
+            <div className="space-y-3">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={levels.includes('EL')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setLevels([...levels, 'EL']);
+                    } else {
+                      setLevels(levels.filter(l => l !== 'EL'));
+                    }
+                  }}
+                  className="w-5 h-5 text-cyan-400 bg-purple-900 border-cyan-400 rounded focus:ring-cyan-400 focus:ring-2"
+                />
+                <span className="ml-3 text-white font-bold text-lg">Elementary</span>
+              </label>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={levels.includes('MS')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setLevels([...levels, 'MS']);
+                    } else {
+                      setLevels(levels.filter(l => l !== 'MS'));
+                    }
+                  }}
+                  className="w-5 h-5 text-cyan-400 bg-purple-900 border-cyan-400 rounded focus:ring-cyan-400 focus:ring-2"
+                />
+                <span className="ml-3 text-white font-bold text-lg">Middle</span>
+              </label>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={levels.includes('HS')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setLevels([...levels, 'HS']);
+                    } else {
+                      setLevels(levels.filter(l => l !== 'HS'));
+                    }
+                  }}
+                  className="w-5 h-5 text-cyan-400 bg-purple-900 border-cyan-400 rounded focus:ring-cyan-400 focus:ring-2"
+                />
+                <span className="ml-3 text-white font-bold text-lg">High</span>
+              </label>
+            </div>
           </div>
 
           {/* Team Stats */}

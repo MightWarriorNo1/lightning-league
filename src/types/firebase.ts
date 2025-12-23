@@ -18,6 +18,7 @@ export interface Team {
   coachId: string;
   createdAt: Date;
   playerIds: string[];
+  levels?: ('EL' | 'MS' | 'HS')[]; // Elementary, Middle School, High School
 }
 
 export interface Question {

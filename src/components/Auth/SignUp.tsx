@@ -60,6 +60,21 @@ export const SignUp: React.FC<{ onSuccess?: () => void; onCancel?: () => void; o
       return;
     }
 
+    if (role === 'student' && !teamId.trim()) {
+      setError('Team ID is required for students');
+      return;
+    }
+
+    if (role === 'student' && teamId.trim().length !== 6) {
+      setError('Team ID must be 6 characters');
+      return;
+    }
+
+    if (role === 'student' && !teamName) {
+      setError('Please enter a valid Team ID');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -124,13 +139,14 @@ export const SignUp: React.FC<{ onSuccess?: () => void; onCancel?: () => void; o
           </div>
           {role === 'student' && (
             <div>
-              <label className="block text-cyan-400 text-sm font-bold uppercase mb-2">Team ID</label>
+              <label className="block text-cyan-400 text-sm font-bold uppercase mb-2">Team ID <span className="text-red-400">*</span></label>
               <input
                 type="text"
                 value={teamId}
                 onChange={(e) => setTeamId(e.target.value.toUpperCase())}
                 placeholder="Enter 6-character Team ID"
                 maxLength={6}
+                required
                 className="w-full bg-purple-950 text-white p-4 rounded-lg border-2 border-cyan-400/30 outline-none font-mono text-center text-xl tracking-widest"
               />
               {checkingTeam && (
