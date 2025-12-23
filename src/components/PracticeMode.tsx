@@ -69,13 +69,13 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     }
   }, [gameSettings.questionTime, questionStartTime]);
 
-  // Start first question when questions are loaded and game is created
+  // Start question when question index changes or when questions are loaded
   useEffect(() => {
-    if (questions.length > 0 && gameId && currentQuestionIndex === 0 && questionStartTime === null) {
+    if (questions.length > 0 && gameId && questionStartTime === null && !loading && currentQuestionIndex < questions.length) {
       startQuestion();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questions, gameId, currentQuestionIndex, questionStartTime]);
+  }, [questions, gameId, currentQuestionIndex, questionStartTime, loading]);
 
   const loadQuestions = async () => {
     try {
@@ -286,27 +286,71 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     return () => clearInterval(timer);
   }, [hesitationTimer, showResult, hesitationComplete]);
   
-  // When hesitation timer reaches 0, show hesitation message then reveal question/answers
+  // When hesitation timer reaches 0, show hesitation message
   useEffect(() => {
-    if (showResult || hesitationComplete) {
+    if (showResult || hesitationComplete || !hasBuzzed) {
       return;
     }
     
     // Check if hesitation timer has reached 0 and we haven't shown the message yet
-    if (hesitationTimer === 0 && !showHesitation) {
+    if (hesitationTimer === 0 && !showHesitation && !hesitationComplete) {
       console.log('Hesitation timer reached 0, showing hesitation message');
       setShowHesitation(true);
-      
-      // After 2 seconds, hide hesitation message
-      const timeoutId = setTimeout(() => {
-        console.log('Hesitation period complete');
-        setShowHesitation(false);
-        setHesitationComplete(true);
-      }, 2000);
-      
-      return () => clearTimeout(timeoutId);
     }
-  }, [hesitationTimer, showResult, hesitationComplete, showHesitation]);
+  }, [hesitationTimer, showResult, hesitationComplete, showHesitation, hasBuzzed]);
+
+  // After hesitation message is shown, wait 2 seconds then show correct answer and advance
+  useEffect(() => {
+    if (!showHesitation || hesitationComplete || showResult || !hasBuzzed) {
+      return;
+    }
+    
+    console.log('Hesitation message shown, setting timeout to show answer');
+    const timeoutId = setTimeout(() => {
+      console.log('Hesitation period complete, showing correct answer');
+      setShowHesitation(false);
+      setHesitationComplete(true);
+      
+      // Show the result with no selected answer (to display correct answer)
+      setShowResult(true);
+      setSelectedAnswer(null);
+      
+      // Track this as a missed question (no answer selected, hesitation timeout)
+      setTotalBySubject((prev) => {
+        const currentQuestion = questions[currentQuestionIndex];
+        if (currentQuestion) {
+          return {
+            ...prev,
+            [currentQuestion.subjectArea]: (prev[currentQuestion.subjectArea] || 0) + 1,
+          };
+        }
+        return prev;
+      });
+      
+      // After 3 seconds, automatically advance to next question
+      setTimeout(() => {
+        setShowResult(false);
+        const nextIndex = currentQuestionIndex + 1;
+        if (nextIndex >= questions.length) {
+          // Pass current score (no change since no answer was selected)
+          endGame(playerScore);
+        } else {
+          setCurrentQuestionIndex(nextIndex);
+          // Reset question state for next question
+          setQuestionStartTime(null);
+          setHasBuzzed(false);
+          setShowHesitation(false);
+          setHesitationTimer(null);
+          setHesitationComplete(false);
+          setSelectedAnswer(null);
+          // startQuestion will be called by the useEffect when questionStartTime becomes null
+        }
+      }, 3000);
+    }, 2000);
+    
+    return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHesitation, hasBuzzed]);
 
   // Debug: Log state changes after buzzing
   useEffect(() => {
@@ -369,7 +413,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   };
 
   const handleAnswer = async (answer: string) => {
-    if (showResult) return;
+    if (showResult || hesitationComplete) return;
 
     const currentQuestion = questions[currentQuestionIndex];
     const isCorrect = answer === currentQuestion.correctAnswer;
@@ -842,17 +886,17 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
               </h2>
             </div>
           )}
-          
-          {/* Hesitation message overlay - appears above question during hesitation period */}
-          {showHesitation && !showResult && (
-            <div className="absolute inset-0 flex items-center justify-center z-10">
-              <div className="bg-red-900/95 border-4 border-red-500 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
-                <h2 className="text-4xl md:text-6xl font-black text-red-400 uppercase">
-                  HESITATION
-                </h2>
-              </div>
-            </div>
-          )}
+        </div>
+      )}
+
+      {/* Hesitation message overlay - appears above answer choices when hesitation timer expires */}
+      {showHesitation && hasBuzzed && !showResult && (
+        <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center">
+          <div className="bg-red-900/95 border-4 border-red-500 rounded-xl p-8 text-center min-h-[160px] flex items-center justify-center">
+            <h2 className="text-4xl md:text-6xl font-black text-red-400 uppercase">
+              HESITATION
+            </h2>
+          </div>
         </div>
       )}
 
@@ -886,8 +930,8 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
                 <button
                   key={`${currentQuestion.id}-${idx}-${answer}`}
                   onClick={() => handleAnswer(answer)}
-                  disabled={showResult}
-                  className={`relative p-1 rounded-xl ${glow} hover:scale-[1.02] ${showResult ? 'opacity-50' : ''}`}
+                  disabled={showResult || hesitationComplete}
+                  className={`relative p-1 rounded-xl ${glow} hover:scale-[1.02] ${showResult || hesitationComplete ? 'opacity-50' : ''}`}
                 >
                   <div className="bg-purple-950 border-2 border-white/20 rounded-xl flex items-center p-4">
                     <div
@@ -905,7 +949,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
         )
       )}
 
-      {showResult && selectedAnswer !== currentQuestion.correctAnswer && (
+      {showResult && (selectedAnswer === null || selectedAnswer !== currentQuestion.correctAnswer) && (
         <div className="mt-4 text-2xl font-black text-green-400">
           Correct: {currentQuestion.correctAnswer}
         </div>

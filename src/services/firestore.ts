@@ -157,6 +157,55 @@ export const updateTeam = async (teamId: string, updates: Partial<Team>) => {
   await updateDoc(teamRef, updates);
 };
 
+// Generate a unique TeamID (6-character alphanumeric code)
+const generateTeamId = (): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 6; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
+
+// Create a team with a generated TeamID for a coach
+export const createTeamForCoach = async (coachId: string, teamName: string): Promise<string> => {
+  // Generate a unique TeamID
+  let teamId = generateTeamId();
+  
+  // Check if TeamID already exists (very unlikely, but just in case)
+  let teamExists = true;
+  let attempts = 0;
+  while (teamExists && attempts < 10) {
+    const existingTeam = await getTeam(teamId);
+    if (!existingTeam) {
+      teamExists = false;
+    } else {
+      teamId = generateTeamId();
+      attempts++;
+    }
+  }
+  
+  if (teamExists) {
+    throw new Error('Failed to generate unique TeamID. Please try again.');
+  }
+  
+  // Create team document with TeamID as document ID
+  const teamRef = doc(db, 'teams', teamId);
+  await setDoc(teamRef, {
+    id: teamId,
+    name: teamName,
+    coachId: coachId,
+    playerIds: [],
+    createdAt: serverTimestamp(),
+  });
+  
+  // Update user document with teamId
+  const userRef = doc(db, 'users', coachId);
+  await updateDoc(userRef, { teamId: teamId });
+  
+  return teamId;
+};
+
 export const createPlayer = async (player: Omit<Player, 'id' | 'createdAt'>) => {
   const playerRef = doc(playersCollection);
   await setDoc(playerRef, {
@@ -194,6 +243,56 @@ export const getPlayersByTeam = async (teamId: string) => {
 export const updatePlayerStats = async (playerId: string, stats: Partial<Player>) => {
   const playerRef = doc(db, 'players', playerId);
   await updateDoc(playerRef, stats);
+};
+
+// Allow a student to join a team by TeamID
+export const joinTeam = async (userId: string, teamId: string, displayName: string) => {
+  // Validate team exists
+  const team = await getTeam(teamId);
+  if (!team) {
+    throw new Error('Team ID not found. Please check with your coach.');
+  }
+
+  // Use batch to ensure atomicity
+  const batch = writeBatch(db);
+
+  // Update user document with teamId
+  const userRef = doc(db, 'users', userId);
+  batch.update(userRef, { teamId: teamId });
+
+  // Check if player document exists
+  const playerRef = doc(db, 'players', userId);
+  const playerDoc = await getDoc(playerRef);
+
+  if (playerDoc.exists()) {
+    // Update existing player document
+    batch.update(playerRef, { teamId: teamId });
+  } else {
+    // Create new player document
+    batch.set(playerRef, {
+      userId: userId,
+      teamId: teamId,
+      displayName: displayName,
+      gamesPlayed: 0,
+      totalScore: 0,
+      totalQuestions: 0,
+      avgBuzzTime: 0,
+      correctBySubject: {},
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  // Update team's playerIds array (only if not already included)
+  const teamRef = doc(db, 'teams', teamId);
+  const currentPlayerIds = team.playerIds || [];
+  if (!currentPlayerIds.includes(userId)) {
+    batch.update(teamRef, {
+      playerIds: arrayUnion(userId),
+    });
+  }
+
+  // Commit all changes
+  await batch.commit();
 };
 
 // Games Collection

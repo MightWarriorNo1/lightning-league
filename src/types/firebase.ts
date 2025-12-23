@@ -45,6 +45,7 @@ export interface Player {
   userId: string;
   teamId: string;
   displayName: string;
+  avatar?: string;
   gamesPlayed: number;
   totalScore: number;
   totalQuestions: number;

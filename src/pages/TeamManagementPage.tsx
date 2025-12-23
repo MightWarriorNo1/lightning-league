@@ -2,25 +2,31 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, ArrowLeft, Copy, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { getTeam, updateTeam, getPlayersByTeam } from '../services/firestore';
-import { Team } from '../types/firebase';
+import { getTeam, updateTeam, getPlayersByTeam, createTeamForCoach } from '../services/firestore';
 
 export const TeamManagementPage: React.FC = () => {
   const navigate = useNavigate();
-  const { userData } = useAuth();
-  const [team, setTeam] = useState<Team | null>(null);
+  const { userData, refreshUserData } = useAuth();
   const [teamName, setTeamName] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [studentCount, setStudentCount] = useState(0);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (userData?.teamId && userData?.role === 'coach') {
-      loadTeam();
+    if (userData?.role === 'coach') {
+      if (userData?.teamId) {
+        loadTeam();
+      } else {
+        // Coach doesn't have a team yet - show create team UI
+        setLoading(false);
+      }
     } else {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userData]);
 
   const loadTeam = async () => {
@@ -30,7 +36,6 @@ export const TeamManagementPage: React.FC = () => {
       setLoading(true);
       const teamData = await getTeam(userData.teamId);
       if (teamData) {
-        setTeam(teamData);
         setTeamName(teamData.name);
       }
       
@@ -72,6 +77,36 @@ export const TeamManagementPage: React.FC = () => {
     }
   };
 
+  const handleCreateTeam = async () => {
+    if (!userData || userData.role !== 'coach') {
+      setError('Only coaches can create teams');
+      return;
+    }
+
+    if (!teamName.trim()) {
+      setError('Team name cannot be empty');
+      return;
+    }
+
+    try {
+      setCreating(true);
+      setError('');
+      await createTeamForCoach(userData.uid, teamName.trim());
+      
+      // Refresh user data to get the new teamId
+      await refreshUserData();
+      
+      // Reload the page to show the team management UI
+      window.location.reload();
+    } catch (err: unknown) {
+      console.error('Error creating team:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create team. Please try again.';
+      setError(errorMessage);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   if (loading) {
     return (
       <div 
@@ -87,7 +122,7 @@ export const TeamManagementPage: React.FC = () => {
     );
   }
 
-  if (!userData?.teamId || userData?.role !== 'coach') {
+  if (userData?.role !== 'coach') {
     return (
       <div 
         className="min-h-screen w-full relative bg-cover bg-center bg-no-repeat flex items-center justify-center"
@@ -98,7 +133,79 @@ export const TeamManagementPage: React.FC = () => {
         }}
       >
         <div className="bg-red-500 text-white p-6 rounded-xl">
-          You must be a coach with a team to access this page.
+          You must be a coach to access this page.
+        </div>
+      </div>
+    );
+  }
+
+  // Show create team UI if coach doesn't have a team
+  if (!userData?.teamId) {
+    return (
+      <div 
+        className="min-h-screen w-full relative bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: 'url(/Environments/Coach%20Panel.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-4 overflow-auto">
+          <button
+            onClick={() => navigate('/coach-dashboard')}
+            className="absolute top-4 left-4 p-2 bg-yellow-500 hover:bg-orange-500 rounded-full transition-colors z-20 shadow-lg"
+          >
+            <ArrowLeft className="w-6 h-6 text-black" />
+          </button>
+
+          <div className="bg-purple-900 border-4 border-cyan-400 rounded-3xl p-12 max-w-2xl w-full">
+            <div className="flex items-center mb-8 border-b border-cyan-400/30 pb-6">
+              <Users className="text-cyan-400 mr-4" size={48} />
+              <h1 className="text-4xl font-black text-white">CREATE YOUR TEAM</h1>
+            </div>
+
+            {error && (
+              <div className="bg-red-500 text-white p-4 rounded-lg mb-6">
+                {error}
+              </div>
+            )}
+
+            <div className="bg-purple-950 rounded-xl p-6 mb-6 border-2 border-cyan-400/30">
+              <label className="block text-cyan-400 text-sm font-bold uppercase mb-2">
+                Team Name
+              </label>
+              <input
+                type="text"
+                value={teamName}
+                onChange={(e) => {
+                  setTeamName(e.target.value);
+                  setError('');
+                }}
+                placeholder="Enter your team name"
+                className="w-full bg-purple-900 text-white p-4 rounded-lg border-2 border-cyan-400/30 text-xl font-bold"
+                maxLength={50}
+              />
+              <p className="text-white/70 text-sm mt-3">
+                A unique Team ID will be automatically generated for your team. You can share this ID with students so they can join your team.
+              </p>
+            </div>
+
+            <div className="flex gap-4 pt-6 border-t border-cyan-400/30">
+              <button
+                onClick={() => navigate('/coach-dashboard')}
+                className="flex-1 bg-purple-950 text-white/70 hover:text-white font-bold py-3 rounded-xl border-2 border-white/20"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={handleCreateTeam}
+                disabled={creating || !teamName.trim()}
+                className="flex-1 bg-yellow-500 hover:bg-orange-500 text-black font-black py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {creating ? 'CREATING TEAM...' : 'CREATE TEAM'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );

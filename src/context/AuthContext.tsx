@@ -17,6 +17,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, displayName: string, role: UserRole, teamId?: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUserData: () => Promise<void>;
   isCoach: boolean;
   isStudent: boolean;
   isAdmin: boolean;
@@ -37,24 +38,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userData, setUserData] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const fetchUserData = async (user: FirebaseUser) => {
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    if (userDoc.exists()) {
+      const data = userDoc.data();
+      setUserData({
+        uid: user.uid,
+        email: user.email || '',
+        displayName: data.displayName,
+        role: data.role,
+        teamId: data.teamId,
+        createdAt: data.createdAt?.toDate() || new Date(),
+        lastActive: data.lastActive?.toDate() || new Date(),
+      });
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        // Fetch user data from Firestore
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          setUserData({
-            uid: user.uid,
-            email: user.email || '',
-            displayName: data.displayName,
-            role: data.role,
-            teamId: data.teamId,
-            createdAt: data.createdAt?.toDate() || new Date(),
-            lastActive: data.lastActive?.toDate() || new Date(),
-          });
-        }
+        await fetchUserData(user);
       } else {
         setUserData(null);
       }
@@ -63,6 +67,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return unsubscribe;
   }, []);
+
+  const refreshUserData = async () => {
+    if (currentUser) {
+      await fetchUserData(currentUser);
+    }
+  };
 
   const signUp = async (email: string, password: string, displayName: string, role: UserRole, teamId?: string) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -145,6 +155,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signUp,
     signIn,
     logout,
+    refreshUserData,
     isCoach: userData?.role === 'coach',
     isStudent: userData?.role === 'student',
     isAdmin: userData?.role === 'admin',
