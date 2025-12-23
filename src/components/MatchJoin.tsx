@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getGame, getPlayer } from '../services/firestore';
+import { getGame, getGameByMatchIdCode, getPlayer } from '../services/firestore';
 import { Game, Player } from '../types/firebase';
 import { ArrowLeft } from 'lucide-react';
 
@@ -30,12 +30,16 @@ export const MatchJoin: React.FC<MatchJoinProps> = ({ onJoin, onBack }) => {
       setLoading(true);
       setError(null);
 
-      // Find game by matchId (using gameId as matchId for now)
-      // In a real implementation, you'd query by matchId field
-      const game = await getGame(matchId);
+      // First try to find by matchIdCode, then fallback to gameId
+      let game = await getGameByMatchIdCode(matchId);
+      
+      // If not found by matchIdCode, try as gameId (for backwards compatibility)
+      if (!game) {
+        game = await getGame(matchId);
+      }
       
       if (!game) {
-        setError('Match not found. Please check the Match ID.');
+        setError('Match not found. Please check the Match ID Code.');
         return;
       }
 

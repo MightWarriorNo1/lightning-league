@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useQuestions } from '../context/QuestionsContext';
 import { createQuestion, updateQuestion, deleteQuestion } from '../services/firestore';
 import { Question } from '../types/firebase';
-import { Settings } from 'lucide-react';
+import { Settings, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface QuestionEditorProps {
   onBack: () => void;
@@ -22,10 +22,13 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({ onBack }) => {
   const [filters, setFilters] = useState({
     isPublic: undefined as boolean | undefined,
     subjectArea: '',
+    level: '' as '' | 'EL' | 'MS' | 'HS',
     minYear: '',
     maxYear: '',
     validationStatus: '' as '' | 'pending' | 'approved' | 'flagged' | 'rejected',
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Use questions from context, filtered by coach/team
   useEffect(() => {
@@ -50,6 +53,8 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({ onBack }) => {
 
   useEffect(() => {
     applyFilters();
+    // Reset to first page when filters change
+    setCurrentPage(1);
   }, [questions, filters]);
 
   const applyFilters = () => {
@@ -57,6 +62,9 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({ onBack }) => {
 
     if (filters.subjectArea) {
       filtered = filtered.filter((q) => q.subjectArea === filters.subjectArea);
+    }
+    if (filters.level) {
+      filtered = filtered.filter((q) => q.level === filters.level);
     }
     if (filters.minYear) {
       filtered = filtered.filter((q) => q.importYear >= parseInt(filters.minYear));
@@ -335,7 +343,7 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({ onBack }) => {
 
         <div className="bg-purple-950 rounded-xl p-6 mb-6">
           <h3 className="text-purple-400 font-bold mb-4 uppercase">Filters</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-white text-sm font-bold mb-2">Visibility</label>
               <select
@@ -366,6 +374,19 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({ onBack }) => {
                 <option value="LA">Language Arts</option>
                 <option value="MA">Math</option>
                 <option value="AH">Arts & Humanities</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-white text-sm font-bold mb-2">Level</label>
+              <select
+                value={filters.level}
+                onChange={(e) => setFilters({ ...filters, level: e.target.value as '' | 'EL' | 'MS' | 'HS' })}
+                className="w-full bg-purple-900 text-white p-2 rounded border border-purple-500/30"
+              >
+                <option value="">All</option>
+                <option value="EL">Elementary</option>
+                <option value="MS">Middle School</option>
+                <option value="HS">High School</option>
               </select>
             </div>
             <div>
@@ -409,6 +430,24 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({ onBack }) => {
           <div className="text-white font-bold">
             Showing {filteredQuestions.length} of {questions.length} questions
           </div>
+          <div className="flex items-center gap-4">
+            <label className="text-white text-sm font-bold">
+              Items per page:
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(parseInt(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="ml-2 bg-purple-900 text-white p-2 rounded border border-purple-500/30"
+              >
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+            </label>
+          </div>
           <div className="flex gap-4">
             <input
               type="file"
@@ -432,8 +471,17 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({ onBack }) => {
           </div>
         </div>
 
+        {/* Pagination Info */}
+        {filteredQuestions.length > 0 && (
+          <div className="mb-4 text-white/70 text-sm">
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredQuestions.length)} of {filteredQuestions.length} questions
+          </div>
+        )}
+
         <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-          {filteredQuestions.map((q) => (
+          {filteredQuestions
+            .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+            .map((q) => (
             <div key={q.id} className="bg-purple-950 rounded-xl p-6 border-2 border-purple-800">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex gap-3">
@@ -511,6 +559,62 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({ onBack }) => {
             </div>
           ))}
         </div>
+
+        {/* Pagination Controls */}
+        {filteredQuestions.length > itemsPerPage && (
+          <div className="flex items-center justify-center gap-4 mt-6">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="bg-purple-950 text-white hover:bg-purple-800 disabled:opacity-50 disabled:cursor-not-allowed font-bold py-2 px-4 rounded-lg border-2 border-purple-500/30 flex items-center gap-2"
+            >
+              <ChevronLeft className="w-5 h-5" />
+              Previous
+            </button>
+            
+            <div className="flex items-center gap-2">
+              {Array.from({ length: Math.ceil(filteredQuestions.length / itemsPerPage) }, (_, i) => i + 1)
+                .filter(page => {
+                  // Show first page, last page, current page, and pages around current
+                  const totalPages = Math.ceil(filteredQuestions.length / itemsPerPage);
+                  if (totalPages <= 7) return true;
+                  if (page === 1 || page === totalPages) return true;
+                  if (Math.abs(page - currentPage) <= 1) return true;
+                  return false;
+                })
+                .map((page, index, array) => {
+                  // Add ellipsis if there's a gap
+                  const showEllipsisBefore = index > 0 && array[index - 1] !== page - 1;
+                  return (
+                    <React.Fragment key={page}>
+                      {showEllipsisBefore && (
+                        <span className="text-white/50 px-2">...</span>
+                      )}
+                      <button
+                        onClick={() => setCurrentPage(page)}
+                        className={`px-4 py-2 rounded-lg font-bold transition-colors ${
+                          currentPage === page
+                            ? 'bg-yellow-500 text-black'
+                            : 'bg-purple-950 text-white hover:bg-purple-800 border-2 border-purple-500/30'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+            </div>
+            
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredQuestions.length / itemsPerPage), prev + 1))}
+              disabled={currentPage >= Math.ceil(filteredQuestions.length / itemsPerPage)}
+              className="bg-purple-950 text-white hover:bg-purple-800 disabled:opacity-50 disabled:cursor-not-allowed font-bold py-2 px-4 rounded-lg border-2 border-purple-500/30 flex items-center gap-2"
+            >
+              Next
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        )}
 
         <button onClick={onBack} className="w-full mt-6 bg-purple-950 text-white/70 hover:text-white font-bold py-3 rounded-xl border-2 border-white/20">
           BACK TO DASHBOARD

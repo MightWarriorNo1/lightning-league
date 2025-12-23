@@ -65,6 +65,8 @@ export interface Game {
   startedAt: Date;
   endedAt?: Date;
   status: 'waiting' | 'active' | 'completed';
+  matchIdCode?: string; // Short code for students to join
+  playerIds?: string[]; // Array of player IDs who joined the match
 }
 
 export interface MatchHistory {

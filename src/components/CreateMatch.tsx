@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Play, Users, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, Play, Users, X, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useQuestions } from '../context/QuestionsContext';
 import { createGame, getGame, updateGame, getPlayersByTeam } from '../services/firestore';
@@ -20,14 +20,52 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
   const [match, setMatch] = useState<Game | null>(null);
   const [joinedPlayers, setJoinedPlayers] = useState<Player[]>([]);
   const [subjectFilter, setSubjectFilter] = useState<string>('');
+  const [matchIdCode, setMatchIdCode] = useState<string>('');
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Generate a short match ID code (6 characters, alphanumeric)
+  const generateMatchIdCode = (): string => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  };
 
   // Filter questions based on subject filter (computed value, not state)
   const filteredQuestions = subjectFilter
     ? allQuestions.filter(q => q.subjectArea === subjectFilter)
     : allQuestions;
 
+  // Function to refresh joined players
+  const refreshJoinedPlayers = async () => {
+    if (!match || !userData?.teamId) return;
+    
+    try {
+      const currentGame = await getGame(match.id);
+      if (currentGame && currentGame.playerIds && currentGame.playerIds.length > 0) {
+        const allPlayers = await getPlayersByTeam(userData.teamId);
+        const joined = allPlayers.filter(p => currentGame.playerIds!.includes(p.userId));
+        setJoinedPlayers(joined);
+      } else {
+        setJoinedPlayers([]);
+      }
+    } catch (error) {
+      console.error('Error refreshing players:', error);
+    }
+  };
+
   useEffect(() => {
     if (match) {
+      // Initial load of joined players
+      refreshJoinedPlayers();
+
+      // Set up auto-refresh every 5 seconds
+      refreshIntervalRef.current = setInterval(() => {
+        refreshJoinedPlayers();
+      }, 5000);
+
       // Listen for real-time updates to the match
       const unsubscribe = onSnapshot(doc(db, 'games', match.id), async (docSnapshot) => {
         if (docSnapshot.exists()) {
@@ -39,19 +77,29 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
             endedAt: data.endedAt?.toDate(),
           } as Game;
           setMatch(updatedMatch);
-
-          // Load joined players
-          if (updatedMatch.playerIds && updatedMatch.playerIds.length > 0 && userData?.teamId) {
-            const allPlayers = await getPlayersByTeam(userData.teamId);
-            const joined = allPlayers.filter(p => updatedMatch.playerIds!.includes(p.userId));
-            setJoinedPlayers(joined);
-          } else {
-            setJoinedPlayers([]);
+          // Update matchIdCode if it exists in the game
+          if (updatedMatch.matchIdCode) {
+            setMatchIdCode(updatedMatch.matchIdCode);
           }
+
+          // Refresh joined players when match updates
+          await refreshJoinedPlayers();
         }
       });
 
-      return () => unsubscribe();
+      return () => {
+        unsubscribe();
+        if (refreshIntervalRef.current) {
+          clearInterval(refreshIntervalRef.current);
+          refreshIntervalRef.current = null;
+        }
+      };
+    } else {
+      // Clear interval when match is null
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
     }
   }, [match, userData]);
 
@@ -68,6 +116,10 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
 
     try {
       setCreating(true);
+      // Generate match ID code
+      const code = generateMatchIdCode();
+      setMatchIdCode(code);
+      
       const gameId = await createGame({
         type: 'match',
         teamId: userData.teamId,
@@ -77,9 +129,16 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
         playerIds: [],
       });
 
+      // Store matchIdCode in the game document
+      await updateGame(gameId, { matchIdCode: code } as any);
+
       const createdMatch = await getGame(gameId);
       if (createdMatch) {
         setMatch(createdMatch);
+        // Load matchIdCode from the game if it exists
+        if (createdMatch.matchIdCode) {
+          setMatchIdCode(createdMatch.matchIdCode);
+        }
       }
     } catch (error) {
       console.error('Error creating match:', error);
@@ -89,11 +148,11 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
     }
   };
 
-  const handleLaunchMatch = async () => {
+  const handleBeginMatch = async () => {
     if (!match) return;
 
     if (joinedPlayers.length === 0) {
-      alert('At least one player must join before launching the match');
+      alert('At least one player must join before beginning the match');
       return;
     }
 
@@ -101,12 +160,11 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
       await updateGame(match.id, {
         status: 'active',
       });
-      alert('Match launched! Players can now start playing.');
-      // Navigate to match view or back to dashboard
-      onBack();
+      // Don't navigate away - let coach see the match in progress
+      // The match will be active and players can start playing
     } catch (error) {
-      console.error('Error launching match:', error);
-      alert('Failed to launch match');
+      console.error('Error beginning match:', error);
+      alert('Failed to begin match');
     }
   };
 
@@ -278,11 +336,14 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
               <div className="space-y-6 mb-6">
                 <div className="bg-green-900/30 border-2 border-green-500 rounded-xl p-6">
                   <h2 className="text-2xl font-black text-green-400 mb-2">Match Created!</h2>
-                  <p className="text-white/70 mb-4">
-                    Match ID: <span className="font-mono font-bold text-white">{match.id}</span>
-                  </p>
+                  <div className="bg-purple-950 border-2 border-cyan-400 rounded-lg p-4 mb-4">
+                    <p className="text-cyan-400 text-sm font-bold uppercase mb-2">Match ID Code</p>
+                    <p className="font-mono font-black text-4xl text-yellow-400 text-center tracking-wider">
+                      {matchIdCode || match.id.substring(0, 6).toUpperCase()}
+                    </p>
+                  </div>
                   <p className="text-white/70 text-sm">
-                    Share this Match ID with your students. They can join using the Match Join feature.
+                    Share this Match ID Code with your students. They can join using the Match Join feature.
                   </p>
                 </div>
 
@@ -292,6 +353,14 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
                       <Users className="inline w-5 h-5 mr-2" />
                       Joined Players ({joinedPlayers.length})
                     </h3>
+                    <button
+                      onClick={refreshJoinedPlayers}
+                      className="bg-cyan-500 hover:bg-cyan-400 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 transition-colors"
+                      title="Refresh player list"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Refresh
+                    </button>
                   </div>
                   {joinedPlayers.length === 0 ? (
                     <div className="text-center text-white/50 py-8">
@@ -341,11 +410,11 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
                   CANCEL MATCH
                 </button>
                 <button
-                  onClick={handleLaunchMatch}
+                  onClick={handleBeginMatch}
                   disabled={joinedPlayers.length === 0 || match.status === 'active'}
                   className="flex-1 bg-green-500 hover:bg-green-600 text-white font-black py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {match.status === 'active' ? 'MATCH ACTIVE' : 'LAUNCH MATCH'}
+                  {match.status === 'active' ? 'MATCH ACTIVE' : 'BEGIN MATCH'}
                 </button>
               </div>
             </>

@@ -400,6 +400,22 @@ export const getGamesByMatchId = async (matchId: string) => {
   }) as Game[];
 };
 
+export const getGameByMatchIdCode = async (matchIdCode: string) => {
+  const q = query(gamesCollection, where('matchIdCode', '==', matchIdCode.toUpperCase()));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) {
+    return null;
+  }
+  const doc = snapshot.docs[0];
+  const data = doc.data();
+  return {
+    id: doc.id,
+    ...data,
+    startedAt: data.startedAt?.toDate() || new Date(),
+    endedAt: data.endedAt?.toDate(),
+  } as Game;
+};
+
 // Users Collection
 export const usersCollection = collection(db, 'users');
 
@@ -449,6 +465,23 @@ export const deleteUser = async (userId: string) => {
 
 // Match History Collection
 export const matchHistoryCollection = collection(db, 'matchHistory');
+
+export const getMatchHistoriesByGameId = async (gameId: string) => {
+  const q = query(
+    collection(db, 'matchHistory'),
+    where('gameId', '==', gameId)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      ...data,
+      startedAt: data.startedAt?.toDate() || new Date(),
+      completedAt: data.completedAt?.toDate() || new Date(),
+    } as MatchHistory;
+  });
+};
 
 export const createMatchHistory = async (match: Omit<MatchHistory, 'id' | 'startedAt' | 'completedAt'>) => {
   const matchRef = doc(matchHistoryCollection);
