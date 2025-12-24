@@ -117,6 +117,18 @@ export interface MatchState {
   questionFullyRevealed: boolean;
 }
 
+export interface Notification {
+  id: string;
+  userId: string;
+  type: 'match_end' | 'match_start' | 'team_invite' | 'other';
+  title: string;
+  message: string;
+  gameId?: string;
+  teamId?: string;
+  read: boolean;
+  createdAt: Date;
+}
+
 
 
 

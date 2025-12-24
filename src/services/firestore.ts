@@ -26,6 +26,7 @@ import {
   LeaderboardEntry,
   GameSettings,
   User,
+  Notification,
 } from '../types/firebase';
 
 // Questions Collection
@@ -678,6 +679,68 @@ export const updateGameSettings = async (settings: GameSettings, teamId?: string
   }
   
   await setDoc(settingsRef, settingsDocData);
+};
+
+// Notifications Collection
+export const notificationsCollection = collection(db, 'notifications');
+
+export const createNotification = async (notification: Omit<Notification, 'id' | 'createdAt'>) => {
+  const notificationRef = doc(notificationsCollection);
+  
+  // Build document data, filtering out undefined values
+  const notificationDocData: any = {
+    userId: notification.userId,
+    type: notification.type,
+    title: notification.title,
+    message: notification.message,
+    read: false,
+    createdAt: serverTimestamp(),
+  };
+  
+  // Only include optional fields if they're defined
+  if (notification.gameId !== undefined && notification.gameId !== null && notification.gameId !== '') {
+    notificationDocData.gameId = notification.gameId;
+  }
+  if (notification.teamId !== undefined && notification.teamId !== null && notification.teamId !== '') {
+    notificationDocData.teamId = notification.teamId;
+  }
+  
+  await setDoc(notificationRef, notificationDocData);
+  return notificationRef.id;
+};
+
+export const getNotificationsByUser = async (userId: string, limitCount: number = 50) => {
+  const q = query(
+    notificationsCollection,
+    where('userId', '==', userId),
+    orderBy('createdAt', 'desc'),
+    limit(limitCount)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+    createdAt: doc.data().createdAt?.toDate() || new Date(),
+  })) as Notification[];
+};
+
+export const markNotificationAsRead = async (notificationId: string) => {
+  const notificationRef = doc(db, 'notifications', notificationId);
+  await updateDoc(notificationRef, { read: true });
+};
+
+export const markAllNotificationsAsRead = async (userId: string) => {
+  const q = query(
+    notificationsCollection,
+    where('userId', '==', userId),
+    where('read', '==', false)
+  );
+  const snapshot = await getDocs(q);
+  const batch = writeBatch(db);
+  snapshot.docs.forEach((doc) => {
+    batch.update(doc.ref, { read: true });
+  });
+  await batch.commit();
 };
 
 
