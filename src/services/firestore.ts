@@ -122,6 +122,34 @@ export const getQuestions = async (
   })) as Question[];
 };
 
+export const getQuestionsByIds = async (questionIds: string[]): Promise<Question[]> => {
+  if (questionIds.length === 0) return [];
+  
+  const questions: Question[] = [];
+  
+  // Fetch each question individually
+  for (const questionId of questionIds) {
+    try {
+      const questionDoc = await getDoc(doc(db, 'questions', questionId));
+      if (questionDoc.exists()) {
+        const data = questionDoc.data();
+        questions.push({
+          id: questionDoc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          importDate: data.importDate?.toDate() || new Date(),
+        } as Question);
+      }
+    } catch (error) {
+      console.error(`Error fetching question ${questionId}:`, error);
+    }
+  }
+  
+  // Return questions in the same order as questionIds
+  return questionIds.map(id => questions.find(q => q.id === id)).filter((q): q is Question => q !== undefined);
+};
+
 // Teams Collection
 export const teamsCollection = collection(db, 'teams');
 

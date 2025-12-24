@@ -20,6 +20,8 @@ interface PracticeModeProps {
   numQuestions: number;
   practiceMode: string;
   gameSettings: { questionTime: number; hesitationTime: number; wpm: number };
+  matchGameId?: string; // Optional: if provided, use this gameId instead of creating a new one
+  matchQuestions?: Question[]; // Optional: if provided, use these questions instead of loading from context
 }
 
 export const PracticeMode: React.FC<PracticeModeProps> = ({
@@ -27,6 +29,8 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   numQuestions,
   practiceMode,
   gameSettings,
+  matchGameId,
+  matchQuestions,
 }) => {
   const { userData, currentUser, loading: authLoading } = useAuth();
   const { questions: allQuestions, loading: questionsLoading } = useQuestions();
@@ -55,11 +59,17 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   const [hesitationComplete, setHesitationComplete] = useState(false);
   const revealIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Load match questions if provided, otherwise load from context
   useEffect(() => {
-    if (!questionsLoading && allQuestions.length > 0) {
+    if (matchQuestions && matchGameId) {
+      // Use match questions and gameId
+      setQuestions(matchQuestions);
+      setGameId(matchGameId);
+      setLoading(false);
+    } else if (!questionsLoading && allQuestions.length > 0) {
       loadQuestions();
     }
-  }, [questionsLoading, allQuestions, practiceMode, numQuestions]);
+  }, [questionsLoading, allQuestions, practiceMode, numQuestions, matchQuestions, matchGameId]);
 
   // Update timer when gameSettings change (if no question is active)
   useEffect(() => {
@@ -509,11 +519,14 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
     // Use finalScore if provided (to ensure last question score is included), otherwise use current state
     const finalPlayerScore = finalScore !== undefined ? finalScore : playerScore;
 
+    // Determine if this is a match or practice based on whether matchGameId was provided
+    const gameType = matchGameId ? 'match' : 'practice';
+    
     const matchHistory: Omit<MatchHistory, 'id' | 'startedAt' | 'completedAt'> = {
       gameId,
       playerId: playerId, // Use currentUser.uid to match request.auth.uid
       teamId: userData.teamId,
-      type: 'practice',
+      type: gameType,
       score: finalPlayerScore,
       total: questions.length,
       avgBuzzTime: parseFloat(avgBuzzTime.toFixed(2)),

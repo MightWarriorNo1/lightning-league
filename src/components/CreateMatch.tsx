@@ -6,6 +6,7 @@ import { createGame, getGame, updateGame, getPlayersByTeam } from '../services/f
 import { Question, Game, Player } from '../types/firebase';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { MatchResults } from './MatchResults';
 
 interface CreateMatchProps {
   onBack: () => void;
@@ -21,6 +22,7 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
   const [joinedPlayers, setJoinedPlayers] = useState<Player[]>([]);
   const [subjectFilter, setSubjectFilter] = useState<string>('');
   const [matchIdCode, setMatchIdCode] = useState<string>('');
+  const [showResults, setShowResults] = useState(false);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Generate a short match ID code (6 characters, alphanumeric)
@@ -80,6 +82,11 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
           // Update matchIdCode if it exists in the game
           if (updatedMatch.matchIdCode) {
             setMatchIdCode(updatedMatch.matchIdCode);
+          }
+
+          // Check if match has completed
+          if (updatedMatch.status === 'completed') {
+            setShowResults(true);
           }
 
           // Refresh joined players when match updates
@@ -205,6 +212,21 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
       >
         <div className="text-white text-2xl">Loading questions...</div>
       </div>
+    );
+  }
+
+  // Show match results if match is completed
+  if (showResults && match) {
+    return (
+      <MatchResults
+        gameId={match.id}
+        onBack={() => {
+          setShowResults(false);
+          setMatch(null);
+          setSelectedQuestions([]);
+          setJoinedPlayers([]);
+        }}
+      />
     );
   }
 
