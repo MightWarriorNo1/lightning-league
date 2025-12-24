@@ -218,7 +218,7 @@ export const CreateMatch: React.FC<CreateMatchProps> = ({ onBack }) => {
       }}
     >
       {/* Overlay interactive elements on top of background */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center px-4 overflow-auto py-8">
+      <div className="inset-0 flex flex-col items-center justify-center px-4 overflow-auto py-8">
         {/* Back button */}
         <button
           onClick={onBack}

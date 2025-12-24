@@ -58,7 +58,7 @@ export interface Player {
 export interface Game {
   id: string;
   type: 'practice' | 'match';
-  playerId: string;
+  playerId?: string; // Optional: required for practice games, not for match games
   teamId?: string;
   coachId?: string;
   questionIds: string[];

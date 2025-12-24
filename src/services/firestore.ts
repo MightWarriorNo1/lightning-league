@@ -311,18 +311,26 @@ export const createGame = async (game: Omit<Game, 'id' | 'startedAt'>) => {
   // Build document data, filtering out undefined values
   const gameDocData: any = {
     type: game.type,
-    playerId: game.playerId,
     questionIds: game.questionIds,
     status: game.status,
     startedAt: serverTimestamp(),
   };
   
   // Only include optional fields if they're defined
+  if (game.playerId !== undefined && game.playerId !== null && game.playerId !== '') {
+    gameDocData.playerId = game.playerId;
+  }
   if (game.teamId !== undefined && game.teamId !== null && game.teamId !== '') {
     gameDocData.teamId = game.teamId;
   }
   if (game.coachId !== undefined && game.coachId !== null && game.coachId !== '') {
     gameDocData.coachId = game.coachId;
+  }
+  if (game.playerIds !== undefined && game.playerIds !== null && Array.isArray(game.playerIds)) {
+    gameDocData.playerIds = game.playerIds;
+  }
+  if (game.matchIdCode !== undefined && game.matchIdCode !== null && game.matchIdCode !== '') {
+    gameDocData.matchIdCode = game.matchIdCode;
   }
   
   await setDoc(gameRef, gameDocData);
@@ -364,13 +372,22 @@ export const getGame = async (gameId: string) => {
 
 export const joinMatch = async (gameId: string, playerId: string) => {
   const gameRef = doc(db, 'games', gameId);
+  console.log('[DEBUG] joinMatch - Getting game document:', gameId);
   const gameDoc = await getDoc(gameRef);
   
   if (!gameDoc.exists()) {
+    console.error('[DEBUG] joinMatch - Game document does not exist');
     throw new Error('Match not found');
   }
   
   const gameData = gameDoc.data();
+  console.log('[DEBUG] joinMatch - Game data:', gameData);
+  console.log('[DEBUG] joinMatch - Game has type:', gameData.type);
+  console.log('[DEBUG] joinMatch - Game has coachId:', gameData.coachId);
+  console.log('[DEBUG] joinMatch - Game has teamId:', gameData.teamId);
+  console.log('[DEBUG] joinMatch - Game has playerId:', gameData.playerId);
+  console.log('[DEBUG] joinMatch - Game status:', gameData.status);
+  
   const playerIds = gameData.playerIds || [];
   
   if (playerIds.includes(playerId)) {
@@ -381,9 +398,12 @@ export const joinMatch = async (gameId: string, playerId: string) => {
     throw new Error('Match is not accepting new players');
   }
   
+  console.log('[DEBUG] joinMatch - Attempting updateDoc with arrayUnion');
+  // Use arrayUnion instead of spread operator to work with Firestore security rules
   await updateDoc(gameRef, {
-    playerIds: [...playerIds, playerId],
+    playerIds: arrayUnion(playerId),
   });
+  console.log('[DEBUG] joinMatch - Successfully updated');
 };
 
 export const getGamesByMatchId = async (matchId: string) => {
@@ -401,13 +421,19 @@ export const getGamesByMatchId = async (matchId: string) => {
 };
 
 export const getGameByMatchIdCode = async (matchIdCode: string) => {
-  const q = query(gamesCollection, where('matchIdCode', '==', matchIdCode.toUpperCase()));
+  // Query by matchIdCode only (type field may not exist in all documents)
+  // The security rules allow reading games with matchIdCode
+  const q = query(
+    gamesCollection, 
+    where('matchIdCode', '==', matchIdCode.toUpperCase())
+  );
   const snapshot = await getDocs(q);
   if (snapshot.empty) {
     return null;
   }
   const doc = snapshot.docs[0];
   const data = doc.data();
+  
   return {
     id: doc.id,
     ...data,
