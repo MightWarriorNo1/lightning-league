@@ -21,18 +21,22 @@ export const SignUp: React.FC<{ onSuccess?: () => void; onCancel?: () => void; o
     const checkTeamId = async () => {
       if (teamId.trim().length === 6 && role === 'student') {
         setCheckingTeam(true);
+        setError(''); // Clear previous errors
         try {
           const team = await getTeam(teamId.trim().toUpperCase());
           if (team) {
             setTeamName(team.name);
-            setError('');
+            setError(''); // Clear any errors on success
           } else {
             setTeamName(null);
             setError('Team ID not found. Please check with your coach.');
           }
-        } catch (error) {
+        } catch (error: any) {
           setTeamName(null);
-          setError('Error checking Team ID. Please try again.');
+          // Provide more specific error message
+          const errorMessage = error?.message || 'Error checking Team ID. Please try again.';
+          setError(errorMessage);
+          console.error('Error checking Team ID:', error);
         } finally {
           setCheckingTeam(false);
         }
